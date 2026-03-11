@@ -1,0 +1,43 @@
+{
+  "template": {
+    "settings": {
+      "index.lifecycle.name": "analytics-events-policy"
+    },
+    "mappings": {
+      "dynamic": true,
+      "properties": {
+        "@timestamp": { "type": "date" },
+        "received_at": { "type": "date" },
+        "type": { "type": "keyword" },
+        "site_id": { "type": "keyword" },
+        "session_id": { "type": "keyword" },
+        "anonymous_id": { "type": "keyword" },
+        "user_id": { "type": "keyword" },
+        "path": { "type": "keyword" },
+        "url": { "type": "wildcard" },
+        "referrer": { "type": "wildcard" },
+        "title": {
+          "type": "text",
+          "fields": {
+            "keyword": { "type": "keyword", "ignore_above": 256 }
+          }
+        },
+        "request_domain": { "type": "keyword" },
+        "request_host": { "type": "keyword" },
+        "client_ip": { "type": "ip", "ignore_malformed": true },
+        "geo_country_iso_code": { "type": "keyword" },
+        "geo_country_name": { "type": "keyword" },
+        "geo_city_name": { "type": "keyword" },
+        "forwarded_for": { "type": "wildcard" },
+        "user_agent": { "type": "wildcard" },
+        "accept_language": { "type": "keyword" },
+        "origin": { "type": "keyword" },
+        "referer_header": { "type": "wildcard" },
+        "scheme": { "type": "keyword" },
+        "remote_addr": { "type": "keyword" },
+        "collector_version": { "type": "keyword" },
+        "payload": { "type": "flattened" }
+      }
+    }
+  }
+}

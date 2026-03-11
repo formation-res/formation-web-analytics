@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Run backend tests
+        run: go test -count=1 -timeout 10s ./...
+
+  elasticsearch-bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start Elasticsearch 9
+        run: docker compose -f docker-compose.elasticsearch.yml up -d
+      - name: Wait for Elasticsearch
+        run: |
+          until curl -fsS 'http://localhost:9990/_cluster/health' >/dev/null; do
+            sleep 2
+          done
+      - name: Provision analytics data stream
+        run: ./scripts/create-data-stream-and-templates.sh
+      - name: Stop Elasticsearch
+        if: always()
+        run: docker compose -f docker-compose.elasticsearch.yml down -v

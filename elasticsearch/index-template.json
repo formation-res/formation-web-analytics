@@ -1,0 +1,6 @@
+{
+  "index_patterns": ["analytics-events*"],
+  "data_stream": {},
+  "composed_of": ["analytics-events-common"],
+  "priority": 500
+}

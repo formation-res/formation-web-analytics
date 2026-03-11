@@ -1,0 +1,290 @@
+package httpapi
+
+import (
+	"bytes"
+	"compress/gzip"
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jillesvangurp/formation-web-analytics/internal/batcher"
+	"github.com/jillesvangurp/formation-web-analytics/internal/config"
+	"github.com/jillesvangurp/formation-web-analytics/internal/elastic"
+	"github.com/jillesvangurp/formation-web-analytics/internal/events"
+	"github.com/jillesvangurp/formation-web-analytics/internal/geo"
+	"github.com/jillesvangurp/formation-web-analytics/internal/metrics"
+	"github.com/jillesvangurp/formation-web-analytics/internal/queue"
+)
+
+type noopSender struct{}
+type stubGeoResolver struct{}
+
+func (noopSender) Send(context.Context, []events.Event) (elastic.BulkResult, error) {
+	return elastic.BulkResult{}, nil
+}
+
+func (noopSender) Ping(context.Context) error { return nil }
+func (stubGeoResolver) Lookup(ip string) (geo.Result, bool) {
+	if strings.HasPrefix(ip, "127.") {
+		return geo.Result{
+			CountryISOCode: "LB",
+			CountryName:    "Loopbackland",
+			CityName:       "Loopback City",
+		}, true
+	}
+	return geo.Result{}, false
+}
+func (stubGeoResolver) Close() error { return nil }
+
+func TestRejectsDisallowedDomain(t *testing.T) {
+	cfg := config.Config{
+		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
+		DropPolicy:          config.DropPolicyReject,
+		MaxPayloadBytes:     1024,
+		MaxEventsPerRequest: 10,
+		MaxFieldLength:      256,
+		MaxPayloadEntries:   16,
+		MaxPayloadDepth:     4,
+	}
+	registry := metrics.New()
+	q := queue.New(10)
+	b := batcher.New(config.Config{FlushInterval: time.Second, MaxBatchSize: 10}, q, noopSender{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	server := New(cfg, q, b, noopSender{}, stubGeoResolver{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://evil.example")
+	req.Host = "evil.example"
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+}
+
+func TestAcceptsAllowedDomain(t *testing.T) {
+	cfg := config.Config{
+		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
+		DropPolicy:          config.DropPolicyReject,
+		MaxPayloadBytes:     1024,
+		MaxEventsPerRequest: 10,
+		MaxFieldLength:      256,
+		MaxPayloadEntries:   16,
+		MaxPayloadDepth:     4,
+		CollectorVersion:    "test",
+	}
+	registry := metrics.New()
+	q := queue.New(10)
+	b := batcher.New(config.Config{FlushInterval: time.Second, MaxBatchSize: 10}, q, noopSender{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	server := New(cfg, q, b, noopSender{}, stubGeoResolver{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://example.com")
+	req.Host = "example.com"
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", rec.Code)
+	}
+}
+
+func TestRejectsWrongContentType(t *testing.T) {
+	cfg := config.Config{
+		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
+		DropPolicy:          config.DropPolicyReject,
+		MaxPayloadBytes:     1024,
+		MaxEventsPerRequest: 10,
+		MaxFieldLength:      256,
+		MaxPayloadEntries:   16,
+		MaxPayloadDepth:     4,
+	}
+	registry := metrics.New()
+	q := queue.New(10)
+	b := batcher.New(config.Config{FlushInterval: time.Second, MaxBatchSize: 10}, q, noopSender{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	server := New(cfg, q, b, noopSender{}, stubGeoResolver{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site"}`))
+	req.Header.Set("Content-Type", "text/plain")
+	req.Host = "example.com"
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("expected 415, got %d", rec.Code)
+	}
+}
+
+func TestRejectsTooManyEvents(t *testing.T) {
+	cfg := config.Config{
+		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
+		DropPolicy:          config.DropPolicyReject,
+		MaxPayloadBytes:     4096,
+		MaxEventsPerRequest: 1,
+		MaxFieldLength:      256,
+		MaxPayloadEntries:   16,
+		MaxPayloadDepth:     4,
+	}
+	registry := metrics.New()
+	q := queue.New(10)
+	b := batcher.New(config.Config{FlushInterval: time.Second, MaxBatchSize: 10}, q, noopSender{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	server := New(cfg, q, b, noopSender{}, stubGeoResolver{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"events":[{"type":"page_view","site_id":"site"},{"type":"click","site_id":"site"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Host = "example.com"
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d", rec.Code)
+	}
+}
+
+func TestRejectsEmptyBatch(t *testing.T) {
+	cfg := config.Config{
+		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
+		DropPolicy:          config.DropPolicyReject,
+		MaxPayloadBytes:     4096,
+		MaxEventsPerRequest: 10,
+		MaxFieldLength:      256,
+		MaxPayloadEntries:   16,
+		MaxPayloadDepth:     4,
+	}
+	registry := metrics.New()
+	q := queue.New(10)
+	b := batcher.New(config.Config{FlushInterval: time.Second, MaxBatchSize: 10}, q, noopSender{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	server := New(cfg, q, b, noopSender{}, stubGeoResolver{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"events":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Host = "example.com"
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestEndToEndCollectFlushesToBulkEndpoint(t *testing.T) {
+	bulkReceived := make(chan []byte, 1)
+	esServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/_bulk" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		reader, err := gzip.NewReader(r.Body)
+		if err != nil {
+			t.Fatalf("expected gzip bulk request: %v", err)
+		}
+		defer reader.Close()
+		body, err := io.ReadAll(reader)
+		if err != nil {
+			t.Fatalf("failed to read bulk body: %v", err)
+		}
+		select {
+		case bulkReceived <- body:
+		default:
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errors":false,"items":[{"create":{"status":201}}]}`))
+	}))
+	defer esServer.Close()
+
+	cfg := config.Config{
+		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
+		AllowedDomains:      []string{"example.com"},
+		DropPolicy:          config.DropPolicyReject,
+		MaxPayloadBytes:     4096,
+		MaxEventsPerRequest: 10,
+		MaxFieldLength:      256,
+		MaxPayloadEntries:   16,
+		MaxPayloadDepth:     4,
+		MaxBatchSize:        1,
+		MaxQueueSize:        10,
+		FlushInterval:       20 * time.Millisecond,
+		MaxRetries:          0,
+		RetryMinBackoff:     time.Millisecond,
+		RetryMaxBackoff:     time.Millisecond,
+		ElasticsearchURL:    esServer.URL,
+		ElasticsearchAPIKey: "test",
+		DataStream:          "analytics-events",
+		CollectorVersion:    "test",
+	}
+	registry := metrics.New()
+	q := queue.New(cfg.MaxQueueSize)
+	sender := elastic.New(cfg, registry)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	b := batcher.New(cfg, q, sender, registry, logger)
+	server := New(cfg, q, b, sender, stubGeoResolver{}, registry, logger)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	go b.Run(ctx)
+
+	apiServer := httptest.NewServer(server.Handler())
+	defer apiServer.Close()
+
+	requestBody := `{"type":"page_view","site_id":"site","path":"/pricing","url":"https://example.com/pricing","payload":{"utm_source":"google"}}`
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiServer.URL+"/collect", strings.NewReader(requestBody))
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://example.com")
+	req.Host = "example.com"
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("failed to post collect request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected accepted response, got %d", resp.StatusCode)
+	}
+
+	var payload []byte
+	select {
+	case payload = <-bulkReceived:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for bulk request")
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(payload)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected two ndjson lines, got %d", len(lines))
+	}
+	var action map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &action); err != nil {
+		t.Fatalf("failed to decode action line: %v", err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &document); err != nil {
+		t.Fatalf("failed to decode document line: %v", err)
+	}
+	if _, ok := action["create"]; !ok {
+		t.Fatalf("expected create action")
+	}
+	if document["request_domain"] != "example.com" {
+		t.Fatalf("expected request_domain enrichment, got %v", document["request_domain"])
+	}
+	if document["geo_country_iso_code"] != "LB" {
+		t.Fatalf("expected geolocation enrichment, got %v", document["geo_country_iso_code"])
+	}
+	payloadMap, ok := document["payload"].(map[string]any)
+	if !ok || payloadMap["utm_source"] != "google" {
+		t.Fatalf("expected payload to be preserved: %#v", document["payload"])
+	}
+}

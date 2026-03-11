@@ -1,0 +1,61 @@
+services:
+  geoipupdate:
+    image: ghcr.io/maxmind/geoipupdate:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      GEOIPUPDATE_ACCOUNT_ID: ${MAXMIND_ACCOUNT_ID}
+      GEOIPUPDATE_LICENSE_KEY: ${MAXMIND_LICENSE_KEY}
+      GEOIPUPDATE_EDITION_IDS: ${GEOIPUPDATE_EDITION_IDS:-GeoLite2-City}
+      GEOIPUPDATE_FREQUENCY: ${GEOIPUPDATE_FREQUENCY:-24}
+      GEOIPUPDATE_VERBOSE: ${GEOIPUPDATE_VERBOSE:-0}
+    volumes:
+      - geoip_db:/usr/share/GeoIP
+
+  collector:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      geoipupdate:
+        condition: service_started
+    env_file:
+      - .env
+    expose:
+      - "8080"
+    volumes:
+      - geoip_db:/data:ro
+      - ./scripts/wait-for-geoip.sh:/usr/local/bin/wait-for-geoip.sh:ro
+    command: ["/bin/sh", "-c", "chmod +x /usr/local/bin/wait-for-geoip.sh && /usr/local/bin/wait-for-geoip.sh && /usr/local/bin/collector"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      collector:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      UPSTREAM: collector:8080
+    volumes:
+      - ./server/Caddyfile.template:/etc/caddy/Caddyfile.template:ro
+      - ./scripts/generate-caddyfile.sh:/usr/local/bin/generate-caddyfile.sh:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    command: ["/bin/sh", "-c", "chmod +x /usr/local/bin/generate-caddyfile.sh && /usr/local/bin/generate-caddyfile.sh > /etc/caddy/Caddyfile && caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"]
+
+volumes:
+  caddy_data:
+  caddy_config:
+  geoip_db:

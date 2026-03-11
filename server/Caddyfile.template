@@ -1,0 +1,22 @@
+{$SITES} {
+  encode gzip zstd
+
+  @preflight method OPTIONS
+  @analytics path /collect /batch /healthz /readyz /metrics
+  @allowedOrigin expression `{header.Origin}.matches("^https?://({$ORIGIN_HOSTS})(:[0-9]+)?$")`
+
+  handle @preflight {
+    header @allowedOrigin Access-Control-Allow-Origin "{header.Origin}"
+    header Vary "Origin"
+    header Access-Control-Allow-Methods "POST, OPTIONS"
+    header Access-Control-Allow-Headers "Content-Type"
+    header Access-Control-Max-Age "600"
+    respond "" 204
+  }
+
+  handle @analytics {
+    header @allowedOrigin Access-Control-Allow-Origin "{header.Origin}"
+    header Vary "Origin"
+    reverse_proxy {$UPSTREAM}
+  }
+}
