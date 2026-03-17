@@ -25,7 +25,7 @@ The collector exposes:
 - `GET /healthz`
 - `GET /readyz`
 
-Events are validated, enriched with request metadata and local GeoIP metadata, queued in memory, and flushed to an Elasticsearch data stream via the Bulk API.
+Events are validated, enriched with request metadata, parsed user-agent metadata, parsed language metadata, optional client timezone metadata, and local GeoIP metadata, queued in memory, and flushed to an Elasticsearch data stream via the Bulk API.
 Validation and abuse guard rails include request body limits, JSON-only ingest, bounded batch sizes, field-length limits, and payload depth/entry limits.
 The default in-memory queue size is `10_000` events and the default maximum bulk batch size is `500` events.
 Metrics are disabled by default; when enabled, `GET /metrics` is served on a separate listener configured with `METRICS_LISTEN_ADDR`.
@@ -104,6 +104,31 @@ git push origin v0.1.0
 That will publish `tryformation/formation-web-analytics-server:v0.1.0`.
 
 The published image does not bundle a MaxMind database. You should keep `geoipupdate` as a separate runtime sidecar or companion job that downloads `GeoLite2-City.mmdb` with your own MaxMind credentials and mounts it into the collector container.
+
+## Pulling the published image
+
+Pull a tagged release from Docker Hub with:
+
+```bash
+docker pull tryformation/formation-web-analytics-server:v0.1.0
+```
+
+Or pull the most recent release tag you want to deploy:
+
+```bash
+docker pull tryformation/formation-web-analytics-server:<tag>
+```
+
+The collector expects a GeoIP database file to be mounted at `/data/GeoLite2-City.mmdb` by default. A minimal direct run looks like this:
+
+```bash
+docker run --rm -p 8080:8080 \
+  --env-file .env \
+  -v /path/to/geoip:/data:ro \
+  tryformation/formation-web-analytics-server:v0.1.0
+```
+
+For production deployments, prefer running the collector together with MaxMind's `ghcr.io/maxmind/geoipupdate:latest` container, as shown in `docker-compose.yml`, so the database is fetched and refreshed separately from the collector image.
 
 ## Test Elasticsearch
 
