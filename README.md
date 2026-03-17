@@ -10,11 +10,11 @@ The collector exposes:
 - `POST /batch`
 - `GET /healthz`
 - `GET /readyz`
-- `GET /metrics`
 
 Events are validated, enriched with request metadata and local GeoIP metadata, queued in memory, and flushed to an Elasticsearch data stream via the Bulk API.
 Validation and abuse guard rails include request body limits, JSON-only ingest, bounded batch sizes, field-length limits, and payload depth/entry limits.
 The default in-memory queue size is `10_000` events and the default maximum bulk batch size is `500` events.
+Metrics are disabled by default; when enabled, `GET /metrics` is served on a separate listener configured with `METRICS_LISTEN_ADDR`.
 
 ## Local development
 
@@ -32,7 +32,7 @@ Docker Compose now includes a `geoipupdate` service based on MaxMind's official 
 
 Relevant variables:
 
-- `ALLOWED_DOMAINS` default example `open-rtls.com`
+- `ALLOWED_DOMAINS` should list your collector hostnames
 - `CADDY_DOMAINS` default example `analytics.tryformation.com`
 - `MAXMIND_ACCOUNT_ID`
 - `MAXMIND_LICENSE_KEY`
@@ -78,4 +78,5 @@ Provision the analytics data stream, ILM policy, and templates with:
 
 - The collector is intentionally lossy under pressure or prolonged Elasticsearch outages.
 - CORS is enforced in both Caddy and the backend.
+- `/metrics` is intentionally not exposed through Caddy.
 - Raw IP storage is disabled unless `CAPTURE_CLIENT_IP=true`.

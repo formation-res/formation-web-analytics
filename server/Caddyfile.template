@@ -2,7 +2,7 @@
   encode gzip zstd
 
   @preflight method OPTIONS
-  @analytics path /collect /batch /healthz /readyz /metrics
+  @analytics path /collect /batch /healthz /readyz
   @allowedOrigin expression `{header.Origin}.matches("^https?://({$ORIGIN_HOSTS})(:[0-9]+)?$")`
 
   handle @preflight {

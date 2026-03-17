@@ -16,17 +16,29 @@ func TestLoadParsesDomainsAndDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected config to load: %v", err)
 	}
-	if len(cfg.AllowedDomains) != 3 {
-		t.Fatalf("expected 3 domains including hardcoded allowlist, got %d", len(cfg.AllowedDomains))
+	if len(cfg.AllowedDomains) != 2 {
+		t.Fatalf("expected 2 configured domains, got %d", len(cfg.AllowedDomains))
 	}
-	if _, ok := cfg.AllowedDomainSet["open-rtls.com"]; !ok {
-		t.Fatal("expected hardcoded allowlisted domain")
+	if _, ok := cfg.AllowedDomainSet["example.com"]; !ok {
+		t.Fatal("expected normalized example.com domain")
+	}
+	if _, ok := cfg.AllowedDomainSet["www.example.com"]; !ok {
+		t.Fatal("expected normalized www.example.com domain")
 	}
 	if cfg.FlushInterval != 5*time.Second {
 		t.Fatalf("expected default flush interval")
 	}
 	if cfg.MaxEventsPerRequest != 100 {
 		t.Fatalf("expected default max events per request")
+	}
+	if cfg.MetricsEnabled {
+		t.Fatal("expected metrics to be disabled by default")
+	}
+	if cfg.MetricsListenAddr != ":9090" {
+		t.Fatalf("expected default metrics listen addr, got %s", cfg.MetricsListenAddr)
+	}
+	if cfg.ReadTimeout != 10*time.Second || cfg.WriteTimeout != 15*time.Second || cfg.IdleTimeout != 60*time.Second {
+		t.Fatal("expected default HTTP timeouts to be loaded")
 	}
 }
 

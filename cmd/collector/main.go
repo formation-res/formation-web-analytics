@@ -29,6 +29,8 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: parseLevel(cfg.LogLevel)}))
 	logger.Info("starting collector",
 		"listen_addr", cfg.ListenAddr,
+		"metrics_enabled", cfg.MetricsEnabled,
+		"metrics_listen_addr", cfg.MetricsListenAddr,
 		"allowed_domains", cfg.AllowedDomains,
 		"data_stream", cfg.DataStream,
 		"flush_interval", cfg.FlushInterval,
@@ -37,6 +39,9 @@ func main() {
 		"drop_policy", cfg.DropPolicy,
 		"capture_client_ip", cfg.CaptureClientIP,
 		"trust_proxy_headers", cfg.TrustProxyHeaders,
+		"read_timeout", cfg.ReadTimeout,
+		"write_timeout", cfg.WriteTimeout,
+		"idle_timeout", cfg.IdleTimeout,
 		"collector_version", cfg.CollectorVersion,
 	)
 
@@ -60,6 +65,23 @@ func main() {
 		Addr:              cfg.ListenAddr,
 		Handler:           server.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       cfg.ReadTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
+	}
+
+	var metricsServer *http.Server
+	if cfg.MetricsEnabled {
+		metricsMux := http.NewServeMux()
+		metricsMux.Handle("GET /metrics", server.MetricsHandler())
+		metricsServer = &http.Server{
+			Addr:              cfg.MetricsListenAddr,
+			Handler:           metricsMux,
+			ReadHeaderTimeout: 5 * time.Second,
+			ReadTimeout:       cfg.ReadTimeout,
+			WriteTimeout:      cfg.WriteTimeout,
+			IdleTimeout:       cfg.IdleTimeout,
+		}
 	}
 
 	go func() {
@@ -67,7 +89,19 @@ func main() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = httpServer.Shutdown(shutdownCtx)
+		if metricsServer != nil {
+			_ = metricsServer.Shutdown(shutdownCtx)
+		}
 	}()
+
+	if metricsServer != nil {
+		go func() {
+			if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				logger.Error("metrics server failed", "error", err)
+				stop()
+			}
+		}()
+	}
 
 	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		logger.Error("server failed", "error", err)

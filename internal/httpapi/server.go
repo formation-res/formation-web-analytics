@@ -49,8 +49,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("OPTIONS /batch", s.handleOptions)
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /readyz", s.handleReady)
-	mux.Handle("GET /metrics", s.metrics.Handler())
 	return s.withCommonHeaders(mux)
+}
+
+func (s *Server) MetricsHandler() http.Handler {
+	return s.metrics.Handler()
 }
 
 func (s *Server) handleOptions(w http.ResponseWriter, r *http.Request) {

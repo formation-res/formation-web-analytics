@@ -12,13 +12,13 @@ import (
 type DropPolicy string
 
 const (
-	DropPolicyReject       DropPolicy = "reject"
-	DropPolicyDropNewest   DropPolicy = "drop_newest"
-	hardcodedAllowedDomain            = "open-rtls.com"
+	DropPolicyReject     DropPolicy = "reject"
+	DropPolicyDropNewest DropPolicy = "drop_newest"
 )
 
 type Config struct {
 	ListenAddr            string
+	MetricsListenAddr     string
 	AllowedDomains        []string
 	AllowedDomainSet      map[string]struct{}
 	ElasticsearchURL      string
@@ -44,12 +44,17 @@ type Config struct {
 	LogLevel              string
 	RetentionDays         int
 	RequireElasticReady   bool
+	MetricsEnabled        bool
+	ReadTimeout           time.Duration
+	WriteTimeout          time.Duration
+	IdleTimeout           time.Duration
 	CollectorVersion      string
 }
 
 func Load(version string) (Config, error) {
 	cfg := Config{
 		ListenAddr:          envOrDefault("LISTEN_ADDR", ":8080"),
+		MetricsListenAddr:   envOrDefault("METRICS_LISTEN_ADDR", ":9090"),
 		ElasticsearchURL:    strings.TrimSpace(os.Getenv("ELASTICSEARCH_URL")),
 		ElasticsearchAPIKey: strings.TrimSpace(os.Getenv("ELASTICSEARCH_API_KEY")),
 		ElasticsearchUsername: strings.TrimSpace(
@@ -127,6 +132,18 @@ func Load(version string) (Config, error) {
 	if cfg.RequireElasticReady, err = boolValue("REQUIRE_ELASTIC_READY", false); err != nil {
 		return Config{}, err
 	}
+	if cfg.MetricsEnabled, err = boolValue("METRICS_ENABLED", false); err != nil {
+		return Config{}, err
+	}
+	if cfg.ReadTimeout, err = duration("READ_TIMEOUT", 10*time.Second); err != nil {
+		return Config{}, err
+	}
+	if cfg.WriteTimeout, err = duration("WRITE_TIMEOUT", 15*time.Second); err != nil {
+		return Config{}, err
+	}
+	if cfg.IdleTimeout, err = duration("IDLE_TIMEOUT", 60*time.Second); err != nil {
+		return Config{}, err
+	}
 
 	cfg.DropPolicy = DropPolicy(envOrDefault("DROP_POLICY", string(DropPolicyReject)))
 	if cfg.DropPolicy != DropPolicyReject && cfg.DropPolicy != DropPolicyDropNewest {
@@ -162,9 +179,6 @@ func parseDomains(raw string) ([]string, map[string]struct{}, error) {
 		if err := addDomain(part); err != nil {
 			return nil, nil, err
 		}
-	}
-	if err := addDomain(hardcodedAllowedDomain); err != nil {
-		return nil, nil, err
 	}
 	return domains, set, nil
 }

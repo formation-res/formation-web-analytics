@@ -153,6 +153,31 @@ func TestRejectsTooManyEvents(t *testing.T) {
 	}
 }
 
+func TestMetricsIsNotServedOnMainHandler(t *testing.T) {
+	cfg := config.Config{
+		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
+		DropPolicy:          config.DropPolicyReject,
+		MaxPayloadBytes:     1024,
+		MaxEventsPerRequest: 10,
+		MaxFieldLength:      256,
+		MaxPayloadEntries:   16,
+		MaxPayloadDepth:     4,
+	}
+	registry := metrics.New()
+	q := queue.New(10)
+	b := batcher.New(config.Config{FlushInterval: time.Second, MaxBatchSize: 10}, q, noopSender{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	server := New(cfg, q, b, noopSender{}, stubGeoResolver{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
 func TestRejectsEmptyBatch(t *testing.T) {
 	cfg := config.Config{
 		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
