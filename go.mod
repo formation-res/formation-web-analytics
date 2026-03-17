@@ -1,4 +1,4 @@
-module github.com/jillesvangurp/formation-web-analytics
+module github.com/formation-res/formation-web-analytics
 
 go 1.25.0
 

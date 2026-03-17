@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jillesvangurp/formation-web-analytics/internal/config"
-	"github.com/jillesvangurp/formation-web-analytics/internal/events"
-	"github.com/jillesvangurp/formation-web-analytics/internal/metrics"
+	"github.com/formation-res/formation-web-analytics/internal/config"
+	"github.com/formation-res/formation-web-analytics/internal/events"
+	"github.com/formation-res/formation-web-analytics/internal/metrics"
 )
 
 type BulkSender interface {

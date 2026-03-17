@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jillesvangurp/formation-web-analytics/internal/config"
-	"github.com/jillesvangurp/formation-web-analytics/internal/elastic"
-	"github.com/jillesvangurp/formation-web-analytics/internal/events"
-	"github.com/jillesvangurp/formation-web-analytics/internal/metrics"
-	"github.com/jillesvangurp/formation-web-analytics/internal/queue"
+	"github.com/formation-res/formation-web-analytics/internal/config"
+	"github.com/formation-res/formation-web-analytics/internal/elastic"
+	"github.com/formation-res/formation-web-analytics/internal/events"
+	"github.com/formation-res/formation-web-analytics/internal/metrics"
+	"github.com/formation-res/formation-web-analytics/internal/queue"
 )
 
 type stubSender struct {

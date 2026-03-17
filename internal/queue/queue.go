@@ -3,7 +3,7 @@ package queue
 import (
 	"sync"
 
-	"github.com/jillesvangurp/formation-web-analytics/internal/events"
+	"github.com/formation-res/formation-web-analytics/internal/events"
 )
 
 type Queue struct {

@@ -1,6 +1,20 @@
 # Formation Web Analytics Collector
 
-Minimal self-hosted analytics collector in Go with a separate TypeScript tracker client.
+Minimal self-hosted analytics collector in Go with a separate TypeScript client library.
+
+## Introduction
+
+Formation Web Analytics Collector is currently an early access release. It is already useful for teams that want to own their analytics pipeline, but it should still be treated as infrastructure for technical adopters rather than a finished product. Expect rough edges, limited ergonomics, and breaking changes while the project matures.
+
+The main way to send data to this collector is the [Formation Web Analytics Client](https://github.com/formation-res/formation-web-analytics-client/). That client library is the intended integration path for browser-based event collection and should be considered part of the recommended setup for this server. The client repository was renamed, but the published npm package is currently still `@tryformation/formation-web-analytics-client`.
+
+If you decide to use this today, assess the operational and compliance risks carefully. There is no polished UI yet, so setup, validation, and analysis require hands-on work with your own infrastructure and Elasticsearch. You should review your deployment, retention settings, access controls, backups, incident handling, cookie and consent requirements, and privacy notices before collecting production traffic. The mitigation is straightforward: start with a limited rollout, keep your configuration conservative, test your data handling end to end, and make sure your legal and security review matches your specific use case.
+
+The main reason to adopt this approach is control. This project is intended for self-hosting web analytics in the EU in a way that can reduce third-country transfer exposure and support a GDPR-aligned deployment when configured and operated correctly. Instead of sending visitor data to foreign advertising or tracking companies, you keep collection, storage, access, and governance under your own control. That reduces third-party exposure, simplifies data residency choices, and lets you decide exactly what is collected, retained, and shared.
+
+There is currently no user interface yet. [formationxyz.com](https://formationxyz.com) is waiting to announce some agentic solutions around this, so stay tuned and check the site for updates and more information.
+
+The published container setup is designed around compliant GeoIP distribution. The Docker image does not need to ship a MaxMind database. Instead, the Compose stack expects you to provide your own MaxMind account ID and license key, downloads `GeoLite2-City.mmdb` into a mounted volume at runtime, and periodically refreshes that database in place.
 
 ## Backend
 
@@ -19,7 +33,7 @@ Metrics are disabled by default; when enabled, `GET /metrics` is served on a sep
 ## Local development
 
 1. Copy `.env.example` to `.env` and set Elasticsearch credentials.
-2. Set `MAXMIND_ACCOUNT_ID` and `MAXMIND_LICENSE_KEY`.
+2. Get your own MaxMind account ID and license key, then set `MAXMIND_ACCOUNT_ID` and `MAXMIND_LICENSE_KEY`.
 3. For non-Docker runs, download/update `GeoLite2-City.mmdb` locally with `geoipupdate` and point `GEOIP_DB_PATH` at it.
 4. Start local Elasticsearch with `docker compose -f docker-compose.elasticsearch.yml up -d`.
 5. Create the default `web-analytics` data stream, ILM policy, and templates with `./scripts/create-data-stream-and-templates.sh`.
@@ -28,11 +42,17 @@ Metrics are disabled by default; when enabled, `GET /metrics` is served on a sep
 7. Run `go run ./cmd/collector`.
 8. Or start the deployment stack with `docker compose up --build`.
 9. Run `make smoke-test` for a local collector-to-Elasticsearch verification.
-10. Run `make smoke-test-browser-client` for an end-to-end check using the published `@tryformation/formation-web-analytics-client` package in a Docker-managed test container.
+10. Run `make smoke-test-browser-client` for an end-to-end check using the Formation Web Analytics Client in a Docker-managed test container.
 
 ## GeoIP updates
 
 Docker Compose now includes a `geoipupdate` service based on MaxMind's official container image. It downloads `GeoLite2-City.mmdb` into a shared Docker volume, and the collector waits for that database before starting.
+
+Use your own MaxMind credentials here. The values in `.env.example` are placeholders only, and you should never commit real `MAXMIND_LICENSE_KEY` values or any populated local env files to your repository.
+
+This is also the recommended distribution model for public container releases: publish the collector image without bundling the MaxMind database, mount a persistent volume for GeoIP data, and let `geoipupdate` fetch and periodically refresh the database on the user's deployment using their own credentials.
+
+Attribution: This product includes GeoLite Data created by MaxMind, available from [maxmind.com](https://www.maxmind.com).
 
 Relevant variables:
 
@@ -92,8 +112,10 @@ The mappings are tuned for this collector's analytics event shape: fixed top-lev
 
 ## Guard rails
 
-- Contributor workflow and test/run expectations: [CONTRIBUTING.md](/Users/jillesvangurp/git/formation/formation-web-analytics/CONTRIBUTING.md)
-- Done checklist and current reassessment: [docs/definition-of-done.md](/Users/jillesvangurp/git/formation/formation-web-analytics/docs/definition-of-done.md)
+- Contributor workflow and test/run expectations: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Done checklist and current reassessment: [docs/definition-of-done.md](docs/definition-of-done.md)
+- Privacy, consent, and compliance notes for deployers: [docs/privacy-and-compliance.md](docs/privacy-and-compliance.md)
+- Third-party licenses and notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
 
 ## Validation limits
 

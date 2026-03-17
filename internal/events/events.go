@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jillesvangurp/formation-web-analytics/internal/config"
+	"github.com/formation-res/formation-web-analytics/internal/config"
 )
 
 type Event struct {

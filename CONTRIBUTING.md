@@ -5,8 +5,8 @@
 - Run `make test-backend` before pushing. The backend suite is always run with `-timeout 10s`; tests that need longer should be fixed, not left open-ended.
 - Run `make test-elasticsearch` when changing Elasticsearch mappings, ILM, templates, or bootstrap logic.
 - Prefer deterministic tests over `time.Sleep`. Use channels, contexts, or explicit deadlines.
-- Keep the stack reproducible. Local Elasticsearch for development is [docker-compose.elasticsearch.yml](/Users/jillesvangurp/git/formation/formation-web-analytics/docker-compose.elasticsearch.yml); production stack is [docker-compose.yml](/Users/jillesvangurp/git/formation/formation-web-analytics/docker-compose.yml).
-- If behavior changes, update [README.md](/Users/jillesvangurp/git/formation/formation-web-analytics/README.md) or [docs/definition-of-done.md](/Users/jillesvangurp/git/formation/formation-web-analytics/docs/definition-of-done.md) in the same change.
+- Keep the stack reproducible. Local Elasticsearch for development is [docker-compose.elasticsearch.yml](docker-compose.elasticsearch.yml); production stack is [docker-compose.yml](docker-compose.yml).
+- If behavior changes, update [README.md](README.md) or [docs/definition-of-done.md](docs/definition-of-done.md) in the same change.
 
 ## Best Practices For Tests
 

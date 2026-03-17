@@ -3,7 +3,7 @@ package queue
 import (
 	"testing"
 
-	"github.com/jillesvangurp/formation-web-analytics/internal/events"
+	"github.com/formation-res/formation-web-analytics/internal/events"
 )
 
 func TestQueueEnqueueAndDrain(t *testing.T) {

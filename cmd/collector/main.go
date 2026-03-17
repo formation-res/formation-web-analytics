@@ -9,13 +9,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jillesvangurp/formation-web-analytics/internal/batcher"
-	"github.com/jillesvangurp/formation-web-analytics/internal/config"
-	"github.com/jillesvangurp/formation-web-analytics/internal/elastic"
-	"github.com/jillesvangurp/formation-web-analytics/internal/geo"
-	"github.com/jillesvangurp/formation-web-analytics/internal/httpapi"
-	"github.com/jillesvangurp/formation-web-analytics/internal/metrics"
-	"github.com/jillesvangurp/formation-web-analytics/internal/queue"
+	"github.com/formation-res/formation-web-analytics/internal/batcher"
+	"github.com/formation-res/formation-web-analytics/internal/config"
+	"github.com/formation-res/formation-web-analytics/internal/elastic"
+	"github.com/formation-res/formation-web-analytics/internal/geo"
+	"github.com/formation-res/formation-web-analytics/internal/httpapi"
+	"github.com/formation-res/formation-web-analytics/internal/metrics"
+	"github.com/formation-res/formation-web-analytics/internal/queue"
 )
 
 var version = "dev"

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jillesvangurp/formation-web-analytics/internal/events"
+	"github.com/formation-res/formation-web-analytics/internal/events"
 )
 
 func TestBuildBulkPayload(t *testing.T) {

@@ -23,7 +23,7 @@ jobs:
         run: docker compose -f docker-compose.elasticsearch.yml up -d
       - name: Wait for Elasticsearch
         run: |
-          until curl -fsS 'http://localhost:9990/_cluster/health' >/dev/null; do
+          until curl -fsS 'http://localhost:19920/_cluster/health' >/dev/null; do
             sleep 2
           done
       - name: Provision analytics data stream

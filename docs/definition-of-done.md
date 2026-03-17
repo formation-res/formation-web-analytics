@@ -19,7 +19,7 @@ As of March 11, 2026:
 
 - Backend tests: yes, and now bounded with `go test -timeout 10s`.
 - Validation and abuse handling: improved with content-type checks, bounded request/event limits, payload validation, and malformed JSON coverage.
-- Elasticsearch guard rails: yes, via [docker-compose.elasticsearch.yml](/Users/jillesvangurp/git/formation/formation-web-analytics/docker-compose.elasticsearch.yml), [scripts/create-data-stream-and-templates.sh](/Users/jillesvangurp/git/formation/formation-web-analytics/scripts/create-data-stream-and-templates.sh), and `make test-elasticsearch`.
+- Elasticsearch guard rails: yes, via [docker-compose.elasticsearch.yml](../docker-compose.elasticsearch.yml), [scripts/create-data-stream-and-templates.sh](../scripts/create-data-stream-and-templates.sh), and `make test-elasticsearch`.
 - Documentation: yes. Runbooks, validation limits, guard rails, smoke test instructions, and done checklist are documented.
 - Acceptance criteria: yes for the implemented scope. There is unit coverage, collector-to-bulk integration coverage, and a local smoke test that verifies collector to real Elasticsearch indexing.
 - Minimality and duplication: acceptable. The implementation stays small, package boundaries are simple, and the new validation logic is centralized instead of repeated.

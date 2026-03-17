@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jillesvangurp/formation-web-analytics/internal/config"
+	"github.com/formation-res/formation-web-analytics/internal/config"
 )
 
 func TestDecodeBatchAcceptsSingleEvent(t *testing.T) {
