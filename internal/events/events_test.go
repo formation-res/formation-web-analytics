@@ -37,6 +37,8 @@ func TestEnrichUsesForwardedHeaders(t *testing.T) {
 	cfg := config.Config{
 		TrustProxyHeaders: true,
 		CaptureClientIP:   true,
+		StoreIPMetadata:   false,
+		SanitizeURLs:      true,
 		CollectorVersion:  "test",
 	}
 	req := httptest.NewRequest("POST", "http://collector/collect", nil)
@@ -64,6 +66,44 @@ func TestEnrichUsesForwardedHeaders(t *testing.T) {
 	}
 	if event.Scheme != "https" {
 		t.Fatalf("expected https scheme")
+	}
+	if event.ForwardedFor != "" || event.RemoteAddr != "" {
+		t.Fatalf("expected IP metadata not to be stored by default")
+	}
+	if event.RefererHeader != "https://www.example.com/page" {
+		t.Fatalf("expected referer header to remain sanitized without query, got %s", event.RefererHeader)
+	}
+}
+
+func TestEnrichSanitizesTrackedURLs(t *testing.T) {
+	cfg := config.Config{
+		SanitizeURLs:     true,
+		CollectorVersion: "test",
+	}
+	req := httptest.NewRequest("POST", "http://collector/collect", nil)
+	req.Header.Set("Origin", "https://www.example.com")
+	req.Header.Set("Referer", "https://www.example.com/source?token=secret#frag")
+
+	event := Event{
+		Type:     "page_view",
+		SiteID:   "site",
+		URL:      "https://www.example.com/pricing?email=test@example.com#hero",
+		Referrer: "https://search.example.com/?q=private",
+		Path:     "/pricing?email=test@example.com#hero",
+	}
+	Enrich(req, cfg, &event, time.Unix(0, 0))
+
+	if event.URL != "https://www.example.com/pricing" {
+		t.Fatalf("expected sanitized URL, got %s", event.URL)
+	}
+	if event.Referrer != "https://search.example.com/" {
+		t.Fatalf("expected sanitized referrer, got %s", event.Referrer)
+	}
+	if event.Path != "/pricing" {
+		t.Fatalf("expected sanitized path, got %s", event.Path)
+	}
+	if event.RefererHeader != "https://www.example.com/source" {
+		t.Fatalf("expected sanitized referer header, got %s", event.RefererHeader)
 	}
 }
 

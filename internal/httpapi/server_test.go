@@ -30,6 +30,7 @@ func (noopSender) Send(context.Context, []events.Event) (elastic.BulkResult, err
 }
 
 func (noopSender) Ping(context.Context) error { return nil }
+
 func (stubGeoResolver) Lookup(ip string) (geo.Result, bool) {
 	if strings.HasPrefix(ip, "127.") {
 		return geo.Result{
@@ -40,25 +41,45 @@ func (stubGeoResolver) Lookup(ip string) (geo.Result, bool) {
 	}
 	return geo.Result{}, false
 }
+
 func (stubGeoResolver) Close() error { return nil }
 
-func TestRejectsDisallowedDomain(t *testing.T) {
-	cfg := config.Config{
+func testConfig() config.Config {
+	return config.Config{
 		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
+		AllowedDomains:      []string{"example.com"},
 		DropPolicy:          config.DropPolicyReject,
 		MaxPayloadBytes:     1024,
 		MaxEventsPerRequest: 10,
 		MaxFieldLength:      256,
 		MaxPayloadEntries:   16,
 		MaxPayloadDepth:     4,
+		RateLimitPerMinute:  300,
+		BlockedUserAgents:   []string{"bot", "crawler", "spider", "curl", "wget", "python-requests", "go-http-client"},
+		SuspectUserAgents:   []string{"headless", "playwright", "puppeteer", "selenium", "phantomjs"},
+		RequireOrigin:       true,
+		RequireURLHostMatch: true,
+		SanitizeURLs:        true,
 	}
+}
+
+func newTestServer(cfg config.Config) *Server {
 	registry := metrics.New()
 	q := queue.New(10)
 	b := batcher.New(config.Config{FlushInterval: time.Second, MaxBatchSize: 10}, q, noopSender{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	server := New(cfg, q, b, noopSender{}, stubGeoResolver{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	return New(cfg, q, b, noopSender{}, stubGeoResolver{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+}
 
-	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site"}`))
+func setBrowserHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Mozilla/5.0 TestBrowser")
+}
+
+func TestRejectsDisallowedDomain(t *testing.T) {
+	server := newTestServer(testConfig())
+
+	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site","url":"https://evil.example"}`))
+	setBrowserHeaders(req)
 	req.Header.Set("Origin", "https://evil.example")
 	req.Host = "evil.example"
 	rec := httptest.NewRecorder()
@@ -71,23 +92,12 @@ func TestRejectsDisallowedDomain(t *testing.T) {
 }
 
 func TestAcceptsAllowedDomain(t *testing.T) {
-	cfg := config.Config{
-		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
-		DropPolicy:          config.DropPolicyReject,
-		MaxPayloadBytes:     1024,
-		MaxEventsPerRequest: 10,
-		MaxFieldLength:      256,
-		MaxPayloadEntries:   16,
-		MaxPayloadDepth:     4,
-		CollectorVersion:    "test",
-	}
-	registry := metrics.New()
-	q := queue.New(10)
-	b := batcher.New(config.Config{FlushInterval: time.Second, MaxBatchSize: 10}, q, noopSender{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	server := New(cfg, q, b, noopSender{}, stubGeoResolver{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	cfg := testConfig()
+	cfg.CollectorVersion = "test"
+	server := newTestServer(cfg)
 
-	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site"}`))
-	req.Header.Set("Content-Type", "application/json")
+	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site","url":"https://example.com"}`))
+	setBrowserHeaders(req)
 	req.Header.Set("Origin", "https://example.com")
 	req.Host = "example.com"
 	rec := httptest.NewRecorder()
@@ -100,22 +110,12 @@ func TestAcceptsAllowedDomain(t *testing.T) {
 }
 
 func TestRejectsWrongContentType(t *testing.T) {
-	cfg := config.Config{
-		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
-		DropPolicy:          config.DropPolicyReject,
-		MaxPayloadBytes:     1024,
-		MaxEventsPerRequest: 10,
-		MaxFieldLength:      256,
-		MaxPayloadEntries:   16,
-		MaxPayloadDepth:     4,
-	}
-	registry := metrics.New()
-	q := queue.New(10)
-	b := batcher.New(config.Config{FlushInterval: time.Second, MaxBatchSize: 10}, q, noopSender{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	server := New(cfg, q, b, noopSender{}, stubGeoResolver{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	server := newTestServer(testConfig())
 
 	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site"}`))
 	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("User-Agent", "Mozilla/5.0 TestBrowser")
+	req.Header.Set("Origin", "https://example.com")
 	req.Host = "example.com"
 	rec := httptest.NewRecorder()
 
@@ -127,22 +127,14 @@ func TestRejectsWrongContentType(t *testing.T) {
 }
 
 func TestRejectsTooManyEvents(t *testing.T) {
-	cfg := config.Config{
-		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
-		DropPolicy:          config.DropPolicyReject,
-		MaxPayloadBytes:     4096,
-		MaxEventsPerRequest: 1,
-		MaxFieldLength:      256,
-		MaxPayloadEntries:   16,
-		MaxPayloadDepth:     4,
-	}
-	registry := metrics.New()
-	q := queue.New(10)
-	b := batcher.New(config.Config{FlushInterval: time.Second, MaxBatchSize: 10}, q, noopSender{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	server := New(cfg, q, b, noopSender{}, stubGeoResolver{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	cfg := testConfig()
+	cfg.MaxPayloadBytes = 4096
+	cfg.MaxEventsPerRequest = 1
+	server := newTestServer(cfg)
 
 	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"events":[{"type":"page_view","site_id":"site"},{"type":"click","site_id":"site"}]}`))
-	req.Header.Set("Content-Type", "application/json")
+	setBrowserHeaders(req)
+	req.Header.Set("Origin", "https://example.com")
 	req.Host = "example.com"
 	rec := httptest.NewRecorder()
 
@@ -154,19 +146,7 @@ func TestRejectsTooManyEvents(t *testing.T) {
 }
 
 func TestMetricsIsNotServedOnMainHandler(t *testing.T) {
-	cfg := config.Config{
-		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
-		DropPolicy:          config.DropPolicyReject,
-		MaxPayloadBytes:     1024,
-		MaxEventsPerRequest: 10,
-		MaxFieldLength:      256,
-		MaxPayloadEntries:   16,
-		MaxPayloadDepth:     4,
-	}
-	registry := metrics.New()
-	q := queue.New(10)
-	b := batcher.New(config.Config{FlushInterval: time.Second, MaxBatchSize: 10}, q, noopSender{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	server := New(cfg, q, b, noopSender{}, stubGeoResolver{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	server := newTestServer(testConfig())
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	rec := httptest.NewRecorder()
@@ -179,22 +159,13 @@ func TestMetricsIsNotServedOnMainHandler(t *testing.T) {
 }
 
 func TestRejectsEmptyBatch(t *testing.T) {
-	cfg := config.Config{
-		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
-		DropPolicy:          config.DropPolicyReject,
-		MaxPayloadBytes:     4096,
-		MaxEventsPerRequest: 10,
-		MaxFieldLength:      256,
-		MaxPayloadEntries:   16,
-		MaxPayloadDepth:     4,
-	}
-	registry := metrics.New()
-	q := queue.New(10)
-	b := batcher.New(config.Config{FlushInterval: time.Second, MaxBatchSize: 10}, q, noopSender{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
-	server := New(cfg, q, b, noopSender{}, stubGeoResolver{}, registry, slog.New(slog.NewJSONHandler(io.Discard, nil)))
+	cfg := testConfig()
+	cfg.MaxPayloadBytes = 4096
+	server := newTestServer(cfg)
 
 	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"events":[]}`))
-	req.Header.Set("Content-Type", "application/json")
+	setBrowserHeaders(req)
+	req.Header.Set("Origin", "https://example.com")
 	req.Host = "example.com"
 	rec := httptest.NewRecorder()
 
@@ -202,6 +173,168 @@ func TestRejectsEmptyBatch(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestRejectsMissingOrigin(t *testing.T) {
+	server := newTestServer(testConfig())
+
+	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site","url":"https://example.com"}`))
+	setBrowserHeaders(req)
+	req.Host = "example.com"
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+}
+
+func TestRejectsBlockedUserAgent(t *testing.T) {
+	server := newTestServer(testConfig())
+
+	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site","url":"https://example.com"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://example.com")
+	req.Header.Set("User-Agent", "curl/8.7.1")
+	req.Host = "example.com"
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+}
+
+func TestAcceptsSuspectUserAgentAndMarksQuality(t *testing.T) {
+	bulkReceived := make(chan []byte, 1)
+	esServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reader, err := gzip.NewReader(r.Body)
+		if err != nil {
+			t.Fatalf("expected gzip bulk request: %v", err)
+		}
+		defer reader.Close()
+		body, err := io.ReadAll(reader)
+		if err != nil {
+			t.Fatalf("failed to read body: %v", err)
+		}
+		bulkReceived <- body
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errors":false,"items":[{"create":{"status":201}}]}`))
+	}))
+	defer esServer.Close()
+
+	cfg := testConfig()
+	cfg.MaxBatchSize = 1
+	cfg.MaxQueueSize = 10
+	cfg.FlushInterval = 20 * time.Millisecond
+	cfg.MaxRetries = 0
+	cfg.RetryMinBackoff = time.Millisecond
+	cfg.RetryMaxBackoff = time.Millisecond
+	cfg.ElasticsearchURL = esServer.URL
+	cfg.ElasticsearchAPIKey = "test"
+	cfg.DataStream = "web-analytics"
+
+	registry := metrics.New()
+	q := queue.New(cfg.MaxQueueSize)
+	sender := elastic.New(cfg, registry)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	b := batcher.New(cfg, q, sender, registry, logger)
+	server := New(cfg, q, b, sender, stubGeoResolver{}, registry, logger)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	go b.Run(ctx)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/collect", strings.NewReader(`{"type":"page_view","site_id":"site","url":"https://example.com"}`))
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://example.com")
+	req.Header.Set("User-Agent", "Mozilla/5.0 HeadlessChrome")
+	req.Host = "example.com"
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", rec.Code)
+	}
+
+	select {
+	case payload := <-bulkReceived:
+		if !strings.Contains(string(payload), "\"traffic_quality\":\"suspect\"") || !strings.Contains(string(payload), "\"suspicion_reasons\":[\"user_agent:headless\"]") {
+			t.Fatalf("expected suspect quality in payload, got %s", string(payload))
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for bulk request")
+	}
+}
+
+func TestRejectsOriginNotAllowedForSite(t *testing.T) {
+	cfg := testConfig()
+	cfg.SiteOriginSet = map[string]map[string]struct{}{
+		"site-a": {"example.com": {}},
+	}
+	server := newTestServer(cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site-a","url":"https://example.com"}`))
+	setBrowserHeaders(req)
+	req.Header.Set("Origin", "https://evil.example")
+	req.Host = "example.com"
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+}
+
+func TestRejectsURLHostMismatch(t *testing.T) {
+	server := newTestServer(testConfig())
+
+	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site","url":"https://evil.example"}`))
+	setBrowserHeaders(req)
+	req.Header.Set("Origin", "https://example.com")
+	req.Host = "example.com"
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+}
+
+func TestRejectsRateLimitedClient(t *testing.T) {
+	cfg := testConfig()
+	cfg.RateLimitPerMinute = 1
+	server := newTestServer(cfg)
+
+	first := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site","url":"https://example.com"}`))
+	setBrowserHeaders(first)
+	first.Header.Set("Origin", "https://example.com")
+	first.RemoteAddr = "1.2.3.4:1234"
+	first.Host = "example.com"
+	firstRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(firstRec, first)
+	if firstRec.Code != http.StatusAccepted {
+		t.Fatalf("expected first request to pass, got %d", firstRec.Code)
+	}
+
+	second := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site","url":"https://example.com"}`))
+	setBrowserHeaders(second)
+	second.Header.Set("Origin", "https://example.com")
+	second.RemoteAddr = "1.2.3.4:9999"
+	second.Host = "example.com"
+	secondRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(secondRec, second)
+
+	if secondRec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d", secondRec.Code)
 	}
 }
 
@@ -230,26 +363,19 @@ func TestEndToEndCollectFlushesToBulkEndpoint(t *testing.T) {
 	}))
 	defer esServer.Close()
 
-	cfg := config.Config{
-		AllowedDomainSet:    map[string]struct{}{"example.com": {}},
-		AllowedDomains:      []string{"example.com"},
-		DropPolicy:          config.DropPolicyReject,
-		MaxPayloadBytes:     4096,
-		MaxEventsPerRequest: 10,
-		MaxFieldLength:      256,
-		MaxPayloadEntries:   16,
-		MaxPayloadDepth:     4,
-		MaxBatchSize:        1,
-		MaxQueueSize:        10,
-		FlushInterval:       20 * time.Millisecond,
-		MaxRetries:          0,
-		RetryMinBackoff:     time.Millisecond,
-		RetryMaxBackoff:     time.Millisecond,
-		ElasticsearchURL:    esServer.URL,
-		ElasticsearchAPIKey: "test",
-		DataStream:          "web-analytics",
-		CollectorVersion:    "test",
-	}
+	cfg := testConfig()
+	cfg.MaxPayloadBytes = 4096
+	cfg.MaxBatchSize = 1
+	cfg.MaxQueueSize = 10
+	cfg.FlushInterval = 20 * time.Millisecond
+	cfg.MaxRetries = 0
+	cfg.RetryMinBackoff = time.Millisecond
+	cfg.RetryMaxBackoff = time.Millisecond
+	cfg.ElasticsearchURL = esServer.URL
+	cfg.ElasticsearchAPIKey = "test"
+	cfg.DataStream = "web-analytics"
+	cfg.CollectorVersion = "test"
+
 	registry := metrics.New()
 	q := queue.New(cfg.MaxQueueSize)
 	sender := elastic.New(cfg, registry)
@@ -270,6 +396,7 @@ func TestEndToEndCollectFlushesToBulkEndpoint(t *testing.T) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "https://example.com")
+	req.Header.Set("User-Agent", "Mozilla/5.0 TestBrowser")
 	req.Host = "example.com"
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

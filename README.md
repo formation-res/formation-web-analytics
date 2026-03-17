@@ -28,6 +28,7 @@ Metrics are disabled by default; when enabled, `GET /metrics` is served on a sep
 7. Run `go run ./cmd/collector`.
 8. Or start the deployment stack with `docker compose up --build`.
 9. Run `make smoke-test` for a local collector-to-Elasticsearch verification.
+10. Run `make smoke-test-browser-client` for an end-to-end check using the published `@tryformation/formation-web-analytics-client` package in a Docker-managed test container.
 
 ## GeoIP updates
 
@@ -36,13 +37,23 @@ Docker Compose now includes a `geoipupdate` service based on MaxMind's official 
 Relevant variables:
 
 - `ALLOWED_DOMAINS` should list your collector hostnames
+- `SITE_ORIGIN_MAP` optional per-site origin allowlist in the form `marketing:tryformation.com|www.tryformation.com;docs:docs.tryformation.com`
 - `CADDY_DOMAINS` default example `analytics.tryformation.com`
+- `CADDY_RATE_LIMIT_EVENTS` default `120`
+- `CADDY_RATE_LIMIT_WINDOW` default `1m`
 - `MAXMIND_ACCOUNT_ID`
 - `MAXMIND_LICENSE_KEY`
 - `GEOIPUPDATE_EDITION_IDS` default `GeoLite2-City`
 - `GEOIPUPDATE_FREQUENCY` in hours; `0` means run once and exit
 - `GEOIP_DB_PATH` default `/data/GeoLite2-City.mmdb`
 - `GEOIP_WAIT_TIMEOUT` collector startup wait timeout in seconds
+- `STORE_IP_METADATA` default `false`
+- `SANITIZE_URLS` default `true`
+- `REQUIRE_ORIGIN` default `true`
+- `REQUIRE_URL_HOST_MATCH` default `true`
+- `RATE_LIMIT_PER_MINUTE` default `300`
+- `BLOCKED_USER_AGENTS` default `bot,crawler,spider,curl,wget,python-requests,go-http-client`
+- `SUSPECT_USER_AGENTS` default `headless,playwright,puppeteer,selenium,phantomjs`
 
 If your environment uses egress controls, allow HTTPS redirects to:
 
@@ -55,6 +66,8 @@ Start a local Elasticsearch 9 node with:
 ```bash
 docker compose -f docker-compose.elasticsearch.yml up -d
 ```
+
+The local test cluster is exposed on `http://localhost:19920`.
 
 Provision the default `web-analytics` data stream, ILM policy, and templates with:
 
@@ -92,9 +105,32 @@ The mappings are tuned for this collector's analytics event shape: fixed top-lev
 - Unknown top-level JSON fields are rejected.
 - `GEOIP_DB_PATH` is required; ingest startup fails without a local database.
 
+## Abuse controls
+
+- Requests without an `Origin` header are rejected by default.
+- Requests with obviously automated user agents are rejected by default.
+- Requests with browser-automation style user agents are accepted but marked as suspect.
+- Requests are rate limited per client IP in-memory with `RATE_LIMIT_PER_MINUTE`.
+- Caddy applies edge rate limiting before the request reaches the collector.
+- `SITE_ORIGIN_MAP` can bind each `site_id` to an explicit set of allowed origins.
+- Event `url` hosts must match the request `Origin` host by default.
+- Query strings and fragments are stripped from `url`, `referrer`, `referer_header`, and `path` by default.
+
+## Production Example
+
+For your production setup, keep `analytics.tryformation.com` as the collector host and bind each site to a canonical `site_id`, for example:
+
+```env
+ALLOWED_DOMAINS=analytics.tryformation.com,open-rtls.com,formation-xyz.com,tryformation.com
+SITE_ORIGIN_MAP=open-rtls:open-rtls.com;formation-xyz:formation-xyz.com;tryformation:tryformation.com
+```
+
+This keeps `site_id` stable per property and prevents one allowed origin from writing traffic into another site's bucket.
+
 ## Notes
 
 - The collector is intentionally lossy under pressure or prolonged Elasticsearch outages.
 - CORS is enforced in both Caddy and the backend.
 - `/metrics` is intentionally not exposed through Caddy.
 - Raw IP storage is disabled unless `CAPTURE_CLIENT_IP=true`.
+- GeoIP enrichment still works without storing raw IP metadata because the lookup happens before indexing.

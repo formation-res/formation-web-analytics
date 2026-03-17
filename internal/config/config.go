@@ -21,6 +21,7 @@ type Config struct {
 	MetricsListenAddr     string
 	AllowedDomains        []string
 	AllowedDomainSet      map[string]struct{}
+	SiteOriginSet         map[string]map[string]struct{}
 	ElasticsearchURL      string
 	ElasticsearchAPIKey   string
 	ElasticsearchUsername string
@@ -40,6 +41,13 @@ type Config struct {
 	RetryMaxBackoff       time.Duration
 	TrustProxyHeaders     bool
 	CaptureClientIP       bool
+	StoreIPMetadata       bool
+	SanitizeURLs          bool
+	RequireOrigin         bool
+	RequireURLHostMatch   bool
+	BlockedUserAgents     []string
+	SuspectUserAgents     []string
+	RateLimitPerMinute    int
 	DropPolicy            DropPolicy
 	LogLevel              string
 	RetentionDays         int
@@ -71,6 +79,9 @@ func Load(version string) (Config, error) {
 
 	var err error
 	if cfg.AllowedDomains, cfg.AllowedDomainSet, err = parseDomains(os.Getenv("ALLOWED_DOMAINS")); err != nil {
+		return Config{}, err
+	}
+	if cfg.SiteOriginSet, err = parseSiteOrigins(os.Getenv("SITE_ORIGIN_MAP")); err != nil {
 		return Config{}, err
 	}
 
@@ -129,6 +140,18 @@ func Load(version string) (Config, error) {
 	if cfg.CaptureClientIP, err = boolValue("CAPTURE_CLIENT_IP", false); err != nil {
 		return Config{}, err
 	}
+	if cfg.StoreIPMetadata, err = boolValue("STORE_IP_METADATA", false); err != nil {
+		return Config{}, err
+	}
+	if cfg.SanitizeURLs, err = boolValue("SANITIZE_URLS", true); err != nil {
+		return Config{}, err
+	}
+	if cfg.RequireOrigin, err = boolValue("REQUIRE_ORIGIN", true); err != nil {
+		return Config{}, err
+	}
+	if cfg.RequireURLHostMatch, err = boolValue("REQUIRE_URL_HOST_MATCH", true); err != nil {
+		return Config{}, err
+	}
 	if cfg.RequireElasticReady, err = boolValue("REQUIRE_ELASTIC_READY", false); err != nil {
 		return Config{}, err
 	}
@@ -144,13 +167,18 @@ func Load(version string) (Config, error) {
 	if cfg.IdleTimeout, err = duration("IDLE_TIMEOUT", 60*time.Second); err != nil {
 		return Config{}, err
 	}
+	if cfg.RateLimitPerMinute, err = intValue("RATE_LIMIT_PER_MINUTE", 300); err != nil {
+		return Config{}, err
+	}
+	cfg.BlockedUserAgents = parseList(envOrDefault("BLOCKED_USER_AGENTS", "bot,crawler,spider,curl,wget,python-requests,go-http-client"))
+	cfg.SuspectUserAgents = parseList(envOrDefault("SUSPECT_USER_AGENTS", "headless,playwright,puppeteer,selenium,phantomjs"))
 
 	cfg.DropPolicy = DropPolicy(envOrDefault("DROP_POLICY", string(DropPolicyReject)))
 	if cfg.DropPolicy != DropPolicyReject && cfg.DropPolicy != DropPolicyDropNewest {
 		return Config{}, fmt.Errorf("invalid DROP_POLICY %q", cfg.DropPolicy)
 	}
 
-	if cfg.MaxBatchSize <= 0 || cfg.MaxQueueSize <= 0 || cfg.MaxPayloadBytes <= 0 || cfg.MaxEventsPerRequest <= 0 || cfg.MaxFieldLength <= 0 || cfg.MaxPayloadEntries <= 0 || cfg.MaxPayloadDepth <= 0 || cfg.MaxRetries < 0 {
+	if cfg.MaxBatchSize <= 0 || cfg.MaxQueueSize <= 0 || cfg.MaxPayloadBytes <= 0 || cfg.MaxEventsPerRequest <= 0 || cfg.MaxFieldLength <= 0 || cfg.MaxPayloadEntries <= 0 || cfg.MaxPayloadDepth <= 0 || cfg.MaxRetries < 0 || cfg.RateLimitPerMinute < 0 {
 		return Config{}, errors.New("numeric config values must be positive")
 	}
 
@@ -185,6 +213,52 @@ func parseDomains(raw string) ([]string, map[string]struct{}, error) {
 
 func NormalizeDomain(v string) string {
 	return normalizeDomain(v)
+}
+
+func parseSiteOrigins(raw string) (map[string]map[string]struct{}, error) {
+	if strings.TrimSpace(raw) == "" {
+		return map[string]map[string]struct{}{}, nil
+	}
+	result := make(map[string]map[string]struct{})
+	for _, mapping := range strings.Split(raw, ";") {
+		mapping = strings.TrimSpace(mapping)
+		if mapping == "" {
+			continue
+		}
+		parts := strings.SplitN(mapping, ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid site origin mapping %q", mapping)
+		}
+		siteID := strings.TrimSpace(parts[0])
+		if siteID == "" {
+			return nil, fmt.Errorf("invalid site origin mapping %q", mapping)
+		}
+		origins, _, err := parseDomains(strings.ReplaceAll(parts[1], "|", ","))
+		if err != nil {
+			return nil, fmt.Errorf("invalid site origins for %q: %w", siteID, err)
+		}
+		if len(origins) == 0 {
+			return nil, fmt.Errorf("site %q has no allowed origins", siteID)
+		}
+		allowed := make(map[string]struct{}, len(origins))
+		for _, origin := range origins {
+			allowed[origin] = struct{}{}
+		}
+		result[siteID] = allowed
+	}
+	return result, nil
+}
+
+func parseList(raw string) []string {
+	var items []string
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(strings.ToLower(part))
+		if part == "" {
+			continue
+		}
+		items = append(items, part)
+	}
+	return items
 }
 
 func normalizeDomain(v string) string {

@@ -1,6 +1,18 @@
 {$SITES} {
   encode gzip zstd
 
+  rate_limit {
+    zone analytics_ip {
+      key {remote_host}
+      events {$CADDY_RATE_LIMIT_EVENTS}
+      window {$CADDY_RATE_LIMIT_WINDOW}
+      match {
+        path /collect /batch
+        method POST
+      }
+    }
+  }
+
   @preflight method OPTIONS
   @analytics path /collect /batch /healthz /readyz
   @allowedOrigin expression `{header.Origin}.matches("^https?://({$ORIGIN_HOSTS})(:[0-9]+)?$")`

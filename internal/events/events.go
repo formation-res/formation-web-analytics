@@ -42,6 +42,9 @@ type Event struct {
 	Scheme           string            `json:"scheme,omitempty"`
 	RemoteAddr       string            `json:"remote_addr,omitempty"`
 	CollectorVersion string            `json:"collector_version,omitempty"`
+	TrafficQuality   string            `json:"traffic_quality,omitempty"`
+	IsSuspect        bool              `json:"is_suspect,omitempty"`
+	SuspicionReasons []string          `json:"suspicion_reasons,omitempty"`
 	ExtraHeaders     map[string]string `json:"-"`
 }
 
@@ -63,6 +66,9 @@ func (e *Event) Normalize(now time.Time) {
 	}
 	if e.Payload == nil {
 		e.Payload = map[string]any{}
+	}
+	if strings.TrimSpace(e.TrafficQuality) == "" {
+		e.TrafficQuality = "normal"
 	}
 }
 
@@ -103,19 +109,29 @@ func (e Event) TimestampValue() time.Time {
 
 func Enrich(r *http.Request, cfg config.Config, event *Event, now time.Time) (string, string) {
 	event.Normalize(now)
+	if cfg.SanitizeURLs {
+		event.URL = sanitizeURL(event.URL)
+		event.Referrer = sanitizeURL(event.Referrer)
+		event.Path = sanitizePath(event.Path)
+	}
 	event.RequestHost = effectiveHost(r, cfg.TrustProxyHeaders)
 	event.RequestDomain = config.NormalizeDomain(event.RequestHost)
 	resolvedClientIP := clientIP(r, cfg.TrustProxyHeaders)
-	event.ForwardedFor = strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
 	event.UserAgent = strings.TrimSpace(r.Header.Get("User-Agent"))
 	event.AcceptLanguage = strings.TrimSpace(r.Header.Get("Accept-Language"))
 	event.Origin = strings.TrimSpace(r.Header.Get("Origin"))
 	event.RefererHeader = strings.TrimSpace(r.Header.Get("Referer"))
+	if cfg.SanitizeURLs {
+		event.RefererHeader = sanitizeURL(event.RefererHeader)
+	}
 	event.Scheme = scheme(r, cfg.TrustProxyHeaders)
-	event.RemoteAddr = r.RemoteAddr
 	event.CollectorVersion = cfg.CollectorVersion
 	if cfg.CaptureClientIP {
 		event.ClientIP = resolvedClientIP
+	}
+	if cfg.StoreIPMetadata {
+		event.ForwardedFor = strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
+		event.RemoteAddr = r.RemoteAddr
 	}
 	return event.RequestDomain, resolvedClientIP
 }
@@ -145,6 +161,10 @@ func DecodeBatch(body []byte) ([]Event, error) {
 func AllowedDomain(cfg config.Config, domain string) bool {
 	_, ok := cfg.AllowedDomainSet[config.NormalizeDomain(domain)]
 	return ok
+}
+
+func ClientIP(r *http.Request, trustProxyHeaders bool) string {
+	return clientIP(r, trustProxyHeaders)
 }
 
 func effectiveHost(r *http.Request, trustProxyHeaders bool) string {
@@ -206,6 +226,33 @@ func validateURLField(raw string, max int) error {
 		return errors.New("invalid url scheme")
 	}
 	return nil
+}
+
+func sanitizeURL(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return raw
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	parsed.RawQuery = ""
+	parsed.ForceQuery = false
+	parsed.Fragment = ""
+	if parsed.User != nil {
+		parsed.User = nil
+	}
+	return parsed.String()
+}
+
+func sanitizePath(raw string) string {
+	if raw == "" {
+		return raw
+	}
+	if idx := strings.IndexAny(raw, "?#"); idx >= 0 {
+		return raw[:idx]
+	}
+	return raw
 }
 
 func validatePayload(payload map[string]any, maxEntries, maxDepth, maxFieldLength int) error {

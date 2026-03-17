@@ -14,7 +14,7 @@ require_cmd go
 require_cmd docker
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ES_URL="${ES_URL:-http://localhost:9990}"
+ES_URL="${ES_URL:-http://localhost:19920}"
 DATA_STREAM_NAME="${DATA_STREAM_NAME:-web-analytics}"
 DEFAULT_PORT=$((18080 + ($$ % 1000)))
 LISTEN_ADDR="${LISTEN_ADDR:-127.0.0.1:${DEFAULT_PORT}}"

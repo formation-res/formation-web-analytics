@@ -11,10 +11,15 @@ import (
 func TestBuildBulkPayload(t *testing.T) {
 	now := time.Unix(0, 0).UTC()
 	payload, err := BuildBulkPayload("web-analytics", []events.Event{{
-		Type:       "page_view",
-		SiteID:     "site",
-		Timestamp:  now.Format(time.RFC3339Nano),
-		ReceivedAt: now,
+		Type:           "page_view",
+		SiteID:         "site",
+		Timestamp:      now.Format(time.RFC3339Nano),
+		ReceivedAt:     now,
+		TrafficQuality: "suspect",
+		IsSuspect:      true,
+		SuspicionReasons: []string{
+			"user_agent:headless",
+		},
 		Payload: map[string]any{
 			"utm_source": "google",
 		},
@@ -28,6 +33,12 @@ func TestBuildBulkPayload(t *testing.T) {
 	}
 	if !strings.Contains(text, "\"type\":\"page_view\"") {
 		t.Fatalf("expected event type in payload")
+	}
+	if !strings.Contains(text, "\"traffic_quality\":\"suspect\"") || !strings.Contains(text, "\"is_suspect\":true") {
+		t.Fatalf("expected traffic quality fields in payload: %s", text)
+	}
+	if strings.Contains(text, "\"forwarded_for\"") || strings.Contains(text, "\"remote_addr\"") {
+		t.Fatalf("expected empty IP metadata fields to be omitted: %s", text)
 	}
 }
 

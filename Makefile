@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: test test-backend test-elasticsearch smoke-test stack-up stack-down bootstrap fmt check
+.PHONY: test test-backend test-elasticsearch smoke-test smoke-test-browser-client stack-up stack-down bootstrap fmt check
 
 test: test-backend
 
@@ -9,11 +9,14 @@ test-backend:
 
 test-elasticsearch:
 	docker compose -f docker-compose.elasticsearch.yml up -d
-	until curl -fsS 'http://localhost:9990/_cluster/health' >/dev/null; do sleep 2; done
+	until curl -fsS 'http://localhost:19920/_cluster/health' >/dev/null; do sleep 2; done
 	./scripts/create-data-stream-and-templates.sh
 
 smoke-test:
 	./scripts/smoke-test-stack.sh
+
+smoke-test-browser-client:
+	bash ./scripts/smoke-test-browser-client.sh
 
 stack-up:
 	docker compose up --build -d

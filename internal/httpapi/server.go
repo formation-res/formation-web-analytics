@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/jillesvangurp/formation-web-analytics/internal/batcher"
@@ -27,6 +29,7 @@ type Server struct {
 	geo     geo.Resolver
 	metrics *metrics.Registry
 	logger  *slog.Logger
+	limiter *rateLimiter
 }
 
 func New(cfg config.Config, q *queue.Queue, b *batcher.Batcher, sender elastic.BulkSender, geoResolver geo.Resolver, registry *metrics.Registry, logger *slog.Logger) *Server {
@@ -38,6 +41,7 @@ func New(cfg config.Config, q *queue.Queue, b *batcher.Batcher, sender elastic.B
 		geo:     geoResolver,
 		metrics: registry,
 		logger:  logger,
+		limiter: newRateLimiter(cfg.RateLimitPerMinute),
 	}
 }
 
@@ -63,6 +67,23 @@ func (s *Server) handleOptions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCollect(w http.ResponseWriter, r *http.Request) {
 	s.setCORS(w, r)
+	clientIP := events.ClientIP(r, s.cfg.TrustProxyHeaders)
+	if !s.limiter.Allow(clientIP, time.Now()) {
+		s.metrics.IncRejected(1)
+		s.respondError(w, http.StatusTooManyRequests, "rate_limited")
+		return
+	}
+	if s.cfg.RequireOrigin && strings.TrimSpace(r.Header.Get("Origin")) == "" {
+		s.metrics.IncRejected(1)
+		s.respondError(w, http.StatusForbidden, "origin_required")
+		return
+	}
+	blocked, suspect, suspicionReasons := classifyUserAgent(r.Header.Get("User-Agent"), s.cfg.BlockedUserAgents, s.cfg.SuspectUserAgents)
+	if blocked {
+		s.metrics.IncRejected(1)
+		s.respondError(w, http.StatusForbidden, "user_agent_blocked")
+		return
+	}
 	if !isJSONRequest(r) {
 		s.metrics.IncRejected(1)
 		s.respondError(w, http.StatusUnsupportedMediaType, "content_type_must_be_application_json")
@@ -103,6 +124,21 @@ func (s *Server) handleCollect(w http.ResponseWriter, r *http.Request) {
 			s.logger.Info("domain rejected", "domain", domain, "host", r.Host)
 			s.metrics.IncRejected(1)
 			s.respondError(w, http.StatusForbidden, "domain_not_allowed")
+			return
+		}
+		if suspect {
+			eventBatch[i].IsSuspect = true
+			eventBatch[i].TrafficQuality = "suspect"
+			eventBatch[i].SuspicionReasons = append(eventBatch[i].SuspicionReasons, suspicionReasons...)
+		}
+		if !originAllowedForSite(s.cfg, eventBatch[i].SiteID, eventBatch[i].Origin) {
+			s.metrics.IncRejected(1)
+			s.respondError(w, http.StatusForbidden, "origin_not_allowed_for_site")
+			return
+		}
+		if s.cfg.RequireURLHostMatch && !urlMatchesOrigin(eventBatch[i].URL, eventBatch[i].Origin) {
+			s.metrics.IncRejected(1)
+			s.respondError(w, http.StatusForbidden, "url_host_mismatch")
 			return
 		}
 		if err := eventBatch[i].Validate(s.cfg); err != nil {
@@ -151,6 +187,61 @@ func isJSONRequest(r *http.Request) bool {
 		return false
 	}
 	return mediaType == "application/json"
+}
+
+func classifyUserAgent(userAgent string, blocked, suspect []string) (bool, bool, []string) {
+	userAgent = strings.TrimSpace(strings.ToLower(userAgent))
+	if userAgent == "" {
+		return true, false, nil
+	}
+	for _, needle := range blocked {
+		if strings.Contains(userAgent, needle) {
+			return true, false, nil
+		}
+	}
+	var reasons []string
+	for _, needle := range suspect {
+		if strings.Contains(userAgent, needle) {
+			reasons = append(reasons, "user_agent:"+needle)
+		}
+	}
+	return false, len(reasons) > 0, reasons
+}
+
+func originAllowedForSite(cfg config.Config, siteID, origin string) bool {
+	if len(cfg.SiteOriginSet) == 0 {
+		return true
+	}
+	allowedOrigins, ok := cfg.SiteOriginSet[siteID]
+	if !ok {
+		return false
+	}
+	_, ok = allowedOrigins[config.NormalizeDomain(origin)]
+	return ok
+}
+
+func urlMatchesOrigin(rawURL, origin string) bool {
+	if strings.TrimSpace(rawURL) == "" || strings.TrimSpace(origin) == "" {
+		return true
+	}
+	urlHost := normalizedURLHost(rawURL)
+	originHost := normalizedURLHost(origin)
+	if urlHost == "" || originHost == "" {
+		return false
+	}
+	return urlHost == originHost
+}
+
+func normalizedURLHost(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	host := parsed.Host
+	if host == "" {
+		host = parsed.Path
+	}
+	return config.NormalizeDomain(host)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

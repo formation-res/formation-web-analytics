@@ -6,7 +6,7 @@ usage() {
 Usage: create-data-stream-and-templates.sh [options]
 
 Options:
-  --es-url URL                    Elasticsearch base URL (default: http://localhost:9990)
+  --es-url URL                    Elasticsearch base URL (default: http://localhost:19920)
   --data-stream-name NAME         Data stream name (default: web-analytics)
   --configure-ilm true|false      Create/update ILM policy (default: true)
   --hot-rollover-gb N             Hot rollover primary shard size in GB (default: 20)
@@ -34,7 +34,7 @@ require_cmd() {
   fi
 }
 
-ES_URL="${ES_URL:-http://localhost:9990}"
+ES_URL="${ES_URL:-http://localhost:19920}"
 DATA_STREAM_NAME="${DATA_STREAM_NAME:-web-analytics}"
 CONFIGURE_ILM="${CONFIGURE_ILM:-true}"
 HOT_ROLLOVER_GB="${HOT_ROLLOVER_GB:-20}"
@@ -187,6 +187,9 @@ curl_put "$ES_URL/_component_template/$TEMPLATE_MAPPINGS" "{
         \"scheme\": {\"type\": \"keyword\"},
         \"remote_addr\": {\"type\": \"keyword\"},
         \"collector_version\": {\"type\": \"keyword\"},
+        \"traffic_quality\": {\"type\": \"keyword\"},
+        \"is_suspect\": {\"type\": \"boolean\"},
+        \"suspicion_reasons\": {\"type\": \"keyword\"},
         \"payload\": {\"type\": \"flattened\"}
       }
     }

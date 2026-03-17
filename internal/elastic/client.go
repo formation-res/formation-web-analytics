@@ -144,38 +144,51 @@ func BuildBulkPayload(dataStream string, batch []events.Event) ([]byte, error) {
 			return nil, err
 		}
 		document := map[string]any{
-			"@timestamp":           event.TimestampValue().Format(time.RFC3339Nano),
-			"received_at":          event.ReceivedAt.Format(time.RFC3339Nano),
-			"type":                 event.Type,
-			"site_id":              event.SiteID,
-			"session_id":           event.SessionID,
-			"anonymous_id":         event.AnonymousID,
-			"user_id":              event.UserID,
-			"path":                 event.Path,
-			"url":                  event.URL,
-			"referrer":             event.Referrer,
-			"title":                event.Title,
-			"request_domain":       event.RequestDomain,
-			"request_host":         event.RequestHost,
-			"client_ip":            event.ClientIP,
-			"geo_country_iso_code": event.GeoCountryISO,
-			"geo_country_name":     event.GeoCountryName,
-			"geo_city_name":        event.GeoCityName,
-			"forwarded_for":        event.ForwardedFor,
-			"user_agent":           event.UserAgent,
-			"accept_language":      event.AcceptLanguage,
-			"origin":               event.Origin,
-			"referer_header":       event.RefererHeader,
-			"scheme":               event.Scheme,
-			"remote_addr":          event.RemoteAddr,
-			"collector_version":    event.CollectorVersion,
-			"payload":              event.Payload,
+			"@timestamp":        event.TimestampValue().Format(time.RFC3339Nano),
+			"received_at":       event.ReceivedAt.Format(time.RFC3339Nano),
+			"type":              event.Type,
+			"site_id":           event.SiteID,
+			"request_domain":    event.RequestDomain,
+			"request_host":      event.RequestHost,
+			"collector_version": event.CollectorVersion,
+			"traffic_quality":   event.TrafficQuality,
+			"is_suspect":        event.IsSuspect,
+			"payload":           event.Payload,
+		}
+		addIfNotEmpty(document, "session_id", event.SessionID)
+		addIfNotEmpty(document, "anonymous_id", event.AnonymousID)
+		if event.UserID != nil && *event.UserID != "" {
+			document["user_id"] = event.UserID
+		}
+		addIfNotEmpty(document, "path", event.Path)
+		addIfNotEmpty(document, "url", event.URL)
+		addIfNotEmpty(document, "referrer", event.Referrer)
+		addIfNotEmpty(document, "title", event.Title)
+		addIfNotEmpty(document, "client_ip", event.ClientIP)
+		addIfNotEmpty(document, "geo_country_iso_code", event.GeoCountryISO)
+		addIfNotEmpty(document, "geo_country_name", event.GeoCountryName)
+		addIfNotEmpty(document, "geo_city_name", event.GeoCityName)
+		addIfNotEmpty(document, "forwarded_for", event.ForwardedFor)
+		addIfNotEmpty(document, "user_agent", event.UserAgent)
+		addIfNotEmpty(document, "accept_language", event.AcceptLanguage)
+		addIfNotEmpty(document, "origin", event.Origin)
+		addIfNotEmpty(document, "referer_header", event.RefererHeader)
+		addIfNotEmpty(document, "scheme", event.Scheme)
+		addIfNotEmpty(document, "remote_addr", event.RemoteAddr)
+		if len(event.SuspicionReasons) > 0 {
+			document["suspicion_reasons"] = event.SuspicionReasons
 		}
 		if err := encoder.Encode(document); err != nil {
 			return nil, err
 		}
 	}
 	return []byte(b.String()), nil
+}
+
+func addIfNotEmpty(document map[string]any, key, value string) {
+	if value != "" {
+		document[key] = value
+	}
 }
 
 func Backoff(minimum, maximum time.Duration, attempt int) time.Duration {

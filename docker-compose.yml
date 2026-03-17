@@ -36,7 +36,9 @@ services:
       retries: 5
 
   caddy:
-    image: caddy:2.10-alpine
+    build:
+      context: .
+      dockerfile: server/Caddy.Dockerfile
     restart: unless-stopped
     depends_on:
       collector:
@@ -45,6 +47,8 @@ services:
       - .env
     environment:
       UPSTREAM: collector:8080
+      CADDY_RATE_LIMIT_EVENTS: ${CADDY_RATE_LIMIT_EVENTS:-120}
+      CADDY_RATE_LIMIT_WINDOW: ${CADDY_RATE_LIMIT_WINDOW:-1m}
     volumes:
       - ./server/Caddyfile.template:/etc/caddy/Caddyfile.template:ro
       - ./scripts/generate-caddyfile.sh:/usr/local/bin/generate-caddyfile.sh:ro

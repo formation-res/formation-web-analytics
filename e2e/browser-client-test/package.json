@@ -1,0 +1,9 @@
+{
+  "name": "formation-browser-client-smoke",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tryformation/formation-web-analytics-client": "^0.1.1",
+    "jsdom": "^26.1.0"
+  }
+}

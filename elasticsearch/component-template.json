@@ -36,6 +36,9 @@
         "scheme": { "type": "keyword" },
         "remote_addr": { "type": "keyword" },
         "collector_version": { "type": "keyword" },
+        "traffic_quality": { "type": "keyword" },
+        "is_suspect": { "type": "boolean" },
+        "suspicion_reasons": { "type": "keyword" },
         "payload": { "type": "flattened" }
       }
     }
