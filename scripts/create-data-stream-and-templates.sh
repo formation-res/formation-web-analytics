@@ -179,6 +179,7 @@ curl_put "$ES_URL/_component_template/$TEMPLATE_MAPPINGS" "{
         \"geo_country_iso_code\": {\"type\": \"keyword\"},
         \"geo_country_name\": {\"type\": \"keyword\"},
         \"geo_city_name\": {\"type\": \"keyword\"},
+        \"geo_location\": {\"type\": \"geo_point\", \"ignore_malformed\": true},
         \"forwarded_for\": {\"type\": \"wildcard\"},
         \"user_agent\": {\"type\": \"wildcard\"},
         \"accept_language\": {\"type\": \"keyword\"},

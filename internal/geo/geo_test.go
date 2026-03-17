@@ -1,6 +1,7 @@
 package geo
 
 import (
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -36,6 +37,10 @@ func TestResolverLookup(t *testing.T) {
 				"en": mmdbtype.String("Example City"),
 			},
 		},
+		"location": mmdbtype.Map{
+			"latitude":  mmdbtype.Float64(12.34),
+			"longitude": mmdbtype.Float64(56.78),
+		},
 	}
 	if err := writer.Insert(network, record); err != nil {
 		t.Fatalf("failed to insert record: %v", err)
@@ -61,5 +66,27 @@ func TestResolverLookup(t *testing.T) {
 	}
 	if result.CountryISOCode != "EX" {
 		t.Fatalf("unexpected country code: %#v", result)
+	}
+	if result.Point == nil || result.Point.Latitude != 12.34 || result.Point.Longitude != 56.78 {
+		t.Fatalf("unexpected geo point: %#v", result.Point)
+	}
+}
+
+func TestValidPointRejectsMalformedCoordinates(t *testing.T) {
+	lat := math.NaN()
+	lon := 12.0
+	if point, ok := validPoint(&lat, &lon); ok || point != nil {
+		t.Fatalf("expected NaN latitude to be rejected")
+	}
+
+	lat = 91
+	lon = 12
+	if point, ok := validPoint(&lat, &lon); ok || point != nil {
+		t.Fatalf("expected out-of-range latitude to be rejected")
+	}
+
+	lat = 52.3
+	if point, ok := validPoint(&lat, nil); ok || point != nil {
+		t.Fatalf("expected missing longitude to be rejected")
 	}
 }

@@ -150,6 +150,7 @@ func (s *Server) handleCollect(w http.ResponseWriter, r *http.Request) {
 			eventBatch[i].GeoCountryISO = geoResult.CountryISOCode
 			eventBatch[i].GeoCountryName = geoResult.CountryName
 			eventBatch[i].GeoCityName = geoResult.CityName
+			eventBatch[i].GeoLocation = geoResult.Point
 		}
 		enriched = append(enriched, eventBatch[i])
 	}

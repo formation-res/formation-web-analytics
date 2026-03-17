@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/formation-res/formation-web-analytics/internal/config"
+	"github.com/formation-res/formation-web-analytics/internal/geo"
 )
 
 type Event struct {
@@ -34,6 +35,7 @@ type Event struct {
 	GeoCountryISO    string            `json:"geo_country_iso_code,omitempty"`
 	GeoCountryName   string            `json:"geo_country_name,omitempty"`
 	GeoCityName      string            `json:"geo_city_name,omitempty"`
+	GeoLocation      *geo.Point        `json:"geo_location,omitempty"`
 	ForwardedFor     string            `json:"forwarded_for,omitempty"`
 	UserAgent        string            `json:"user_agent,omitempty"`
 	AcceptLanguage   string            `json:"accept_language,omitempty"`

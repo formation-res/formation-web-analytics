@@ -37,6 +37,10 @@ func (stubGeoResolver) Lookup(ip string) (geo.Result, bool) {
 			CountryISOCode: "LB",
 			CountryName:    "Loopbackland",
 			CityName:       "Loopback City",
+			Point: &geo.Point{
+				Latitude:  52.3676,
+				Longitude: 4.9041,
+			},
 		}, true
 	}
 	return geo.Result{}, false
@@ -434,6 +438,10 @@ func TestEndToEndCollectFlushesToBulkEndpoint(t *testing.T) {
 	}
 	if document["geo_country_iso_code"] != "LB" {
 		t.Fatalf("expected geolocation enrichment, got %v", document["geo_country_iso_code"])
+	}
+	location, ok := document["geo_location"].(map[string]any)
+	if !ok || location["lat"] != 52.3676 || location["lon"] != 4.9041 {
+		t.Fatalf("expected geo_location enrichment, got %#v", document["geo_location"])
 	}
 	payloadMap, ok := document["payload"].(map[string]any)
 	if !ok || payloadMap["utm_source"] != "google" {

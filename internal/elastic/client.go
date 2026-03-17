@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"net/http"
 	"strings"
@@ -168,6 +169,9 @@ func BuildBulkPayload(dataStream string, batch []events.Event) ([]byte, error) {
 		addIfNotEmpty(document, "geo_country_iso_code", event.GeoCountryISO)
 		addIfNotEmpty(document, "geo_country_name", event.GeoCountryName)
 		addIfNotEmpty(document, "geo_city_name", event.GeoCityName)
+		if point, ok := geoPointDocument(event); ok {
+			document["geo_location"] = point
+		}
 		addIfNotEmpty(document, "forwarded_for", event.ForwardedFor)
 		addIfNotEmpty(document, "user_agent", event.UserAgent)
 		addIfNotEmpty(document, "accept_language", event.AcceptLanguage)
@@ -189,6 +193,21 @@ func addIfNotEmpty(document map[string]any, key, value string) {
 	if value != "" {
 		document[key] = value
 	}
+}
+
+func geoPointDocument(event events.Event) (map[string]float64, bool) {
+	if event.GeoLocation == nil {
+		return nil, false
+	}
+	lat := event.GeoLocation.Latitude
+	lon := event.GeoLocation.Longitude
+	if math.IsNaN(lat) || math.IsInf(lat, 0) || math.IsNaN(lon) || math.IsInf(lon, 0) {
+		return nil, false
+	}
+	if lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+		return nil, false
+	}
+	return map[string]float64{"lat": lat, "lon": lon}, true
 }
 
 func Backoff(minimum, maximum time.Duration, attempt int) time.Duration {
