@@ -8,7 +8,7 @@ Depending on how you configure the server and client, the collector can process:
 
 - online identifiers such as `session_id`, `anonymous_id`, and optional `user_id`
 - page and navigation metadata such as `url`, `path`, `referrer`, `origin`, and `title`
-- request metadata such as `user_agent` and `accept_language`
+- request metadata such as `user_agent`, parsed browser or device fields, parsed `accept_language` fields, and optional client timezone fields
 - approximate geolocation derived from IP lookup
 - optional IP-related metadata if `CAPTURE_CLIENT_IP=true` or `STORE_IP_METADATA=true`
 - arbitrary custom event properties in `payload`

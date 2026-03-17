@@ -76,7 +76,7 @@ func newTestServer(cfg config.Config) *Server {
 
 func setBrowserHeaders(req *http.Request) {
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "Mozilla/5.0 TestBrowser")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
 }
 
 func TestRejectsDisallowedDomain(t *testing.T) {
@@ -118,7 +118,7 @@ func TestRejectsWrongContentType(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site"}`))
 	req.Header.Set("Content-Type", "text/plain")
-	req.Header.Set("User-Agent", "Mozilla/5.0 TestBrowser")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
 	req.Header.Set("Origin", "https://example.com")
 	req.Host = "example.com"
 	rec := httptest.NewRecorder()
@@ -393,14 +393,15 @@ func TestEndToEndCollectFlushesToBulkEndpoint(t *testing.T) {
 	apiServer := httptest.NewServer(server.Handler())
 	defer apiServer.Close()
 
-	requestBody := `{"type":"page_view","site_id":"site","path":"/pricing","url":"https://example.com/pricing","payload":{"utm_source":"google"}}`
+	requestBody := `{"type":"page_view","site_id":"site","path":"/pricing","url":"https://example.com/pricing","timezone":"Europe/Berlin","timezone_offset_minutes":60,"payload":{"utm_source":"google"}}`
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiServer.URL+"/collect", strings.NewReader(requestBody))
 	if err != nil {
 		t.Fatalf("failed to build request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "https://example.com")
-	req.Header.Set("User-Agent", "Mozilla/5.0 TestBrowser")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9,de;q=0.8")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
 	req.Host = "example.com"
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -435,6 +436,40 @@ func TestEndToEndCollectFlushesToBulkEndpoint(t *testing.T) {
 	}
 	if document["request_domain"] != "example.com" {
 		t.Fatalf("expected request_domain enrichment, got %v", document["request_domain"])
+	}
+	if document["browser_family"] != "Chrome" {
+		t.Fatalf("expected browser_family enrichment, got %v", document["browser_family"])
+	}
+	if document["browser_major"] != "136" {
+		t.Fatalf("expected browser_major enrichment, got %v", document["browser_major"])
+	}
+	if document["browser_engine"] != "Blink" {
+		t.Fatalf("expected browser_engine enrichment, got %v", document["browser_engine"])
+	}
+	if document["os_family"] != "Mac OS X" {
+		t.Fatalf("expected os_family enrichment, got %v", document["os_family"])
+	}
+	if document["device_family"] != "Mac" {
+		t.Fatalf("expected device_family enrichment, got %v", document["device_family"])
+	}
+	if document["device_type"] != "desktop" {
+		t.Fatalf("expected device_type enrichment, got %v", document["device_type"])
+	}
+	if document["accept_language_primary_tag"] != "en-US" {
+		t.Fatalf("expected accept_language_primary_tag enrichment, got %v", document["accept_language_primary_tag"])
+	}
+	if document["accept_language_primary_region"] != "US" {
+		t.Fatalf("expected accept_language_primary_region enrichment, got %v", document["accept_language_primary_region"])
+	}
+	tags, ok := document["accept_language_tags"].([]any)
+	if !ok || len(tags) != 3 || tags[0] != "en-US" {
+		t.Fatalf("expected accept_language_tags enrichment, got %#v", document["accept_language_tags"])
+	}
+	if document["timezone"] != "Europe/Berlin" || document["timezone_area"] != "Europe" || document["timezone_location"] != "Berlin" {
+		t.Fatalf("expected timezone enrichment, got timezone=%v area=%v location=%v", document["timezone"], document["timezone_area"], document["timezone_location"])
+	}
+	if document["timezone_offset_minutes"] != float64(60) {
+		t.Fatalf("expected timezone_offset_minutes enrichment, got %v", document["timezone_offset_minutes"])
 	}
 	if document["geo_country_iso_code"] != "LB" {
 		t.Fatalf("expected geolocation enrichment, got %v", document["geo_country_iso_code"])

@@ -17,37 +17,55 @@ import (
 )
 
 type Event struct {
-	Type             string            `json:"type"`
-	SiteID           string            `json:"site_id"`
-	Timestamp        string            `json:"timestamp,omitempty"`
-	SessionID        string            `json:"session_id,omitempty"`
-	AnonymousID      string            `json:"anonymous_id,omitempty"`
-	UserID           *string           `json:"user_id,omitempty"`
-	Path             string            `json:"path,omitempty"`
-	URL              string            `json:"url,omitempty"`
-	Referrer         string            `json:"referrer,omitempty"`
-	Title            string            `json:"title,omitempty"`
-	Payload          map[string]any    `json:"payload,omitempty"`
-	ReceivedAt       time.Time         `json:"received_at,omitempty"`
-	RequestHost      string            `json:"request_host,omitempty"`
-	RequestDomain    string            `json:"request_domain,omitempty"`
-	ClientIP         string            `json:"client_ip,omitempty"`
-	GeoCountryISO    string            `json:"geo_country_iso_code,omitempty"`
-	GeoCountryName   string            `json:"geo_country_name,omitempty"`
-	GeoCityName      string            `json:"geo_city_name,omitempty"`
-	GeoLocation      *geo.Point        `json:"geo_location,omitempty"`
-	ForwardedFor     string            `json:"forwarded_for,omitempty"`
-	UserAgent        string            `json:"user_agent,omitempty"`
-	AcceptLanguage   string            `json:"accept_language,omitempty"`
-	Origin           string            `json:"origin,omitempty"`
-	RefererHeader    string            `json:"referer_header,omitempty"`
-	Scheme           string            `json:"scheme,omitempty"`
-	RemoteAddr       string            `json:"remote_addr,omitempty"`
-	CollectorVersion string            `json:"collector_version,omitempty"`
-	TrafficQuality   string            `json:"traffic_quality,omitempty"`
-	IsSuspect        bool              `json:"is_suspect,omitempty"`
-	SuspicionReasons []string          `json:"suspicion_reasons,omitempty"`
-	ExtraHeaders     map[string]string `json:"-"`
+	Type                        string            `json:"type"`
+	SiteID                      string            `json:"site_id"`
+	Timestamp                   string            `json:"timestamp,omitempty"`
+	SessionID                   string            `json:"session_id,omitempty"`
+	AnonymousID                 string            `json:"anonymous_id,omitempty"`
+	UserID                      *string           `json:"user_id,omitempty"`
+	Path                        string            `json:"path,omitempty"`
+	URL                         string            `json:"url,omitempty"`
+	Referrer                    string            `json:"referrer,omitempty"`
+	Title                       string            `json:"title,omitempty"`
+	Payload                     map[string]any    `json:"payload,omitempty"`
+	ReceivedAt                  time.Time         `json:"received_at,omitempty"`
+	RequestHost                 string            `json:"request_host,omitempty"`
+	RequestDomain               string            `json:"request_domain,omitempty"`
+	ClientIP                    string            `json:"client_ip,omitempty"`
+	GeoCountryISO               string            `json:"geo_country_iso_code,omitempty"`
+	GeoCountryName              string            `json:"geo_country_name,omitempty"`
+	GeoCityName                 string            `json:"geo_city_name,omitempty"`
+	GeoLocation                 *geo.Point        `json:"geo_location,omitempty"`
+	ForwardedFor                string            `json:"forwarded_for,omitempty"`
+	UserAgent                   string            `json:"user_agent,omitempty"`
+	BrowserFamily               string            `json:"browser_family,omitempty"`
+	BrowserVersion              string            `json:"browser_version,omitempty"`
+	BrowserMajor                string            `json:"browser_major,omitempty"`
+	OSFamily                    string            `json:"os_family,omitempty"`
+	OSVersion                   string            `json:"os_version,omitempty"`
+	DeviceFamily                string            `json:"device_family,omitempty"`
+	DeviceBrand                 string            `json:"device_brand,omitempty"`
+	DeviceModel                 string            `json:"device_model,omitempty"`
+	DeviceType                  string            `json:"device_type,omitempty"`
+	BrowserEngine               string            `json:"browser_engine,omitempty"`
+	AcceptLanguage              string            `json:"accept_language,omitempty"`
+	AcceptLanguagePrimaryTag    string            `json:"accept_language_primary_tag,omitempty"`
+	AcceptLanguagePrimaryBase   string            `json:"accept_language_primary_base,omitempty"`
+	AcceptLanguagePrimaryRegion string            `json:"accept_language_primary_region,omitempty"`
+	AcceptLanguageTags          []string          `json:"accept_language_tags,omitempty"`
+	Timezone                    string            `json:"timezone,omitempty"`
+	TimezoneArea                string            `json:"timezone_area,omitempty"`
+	TimezoneLocation            string            `json:"timezone_location,omitempty"`
+	TimezoneOffsetMinutes       *int              `json:"timezone_offset_minutes,omitempty"`
+	Origin                      string            `json:"origin,omitempty"`
+	RefererHeader               string            `json:"referer_header,omitempty"`
+	Scheme                      string            `json:"scheme,omitempty"`
+	RemoteAddr                  string            `json:"remote_addr,omitempty"`
+	CollectorVersion            string            `json:"collector_version,omitempty"`
+	TrafficQuality              string            `json:"traffic_quality,omitempty"`
+	IsSuspect                   bool              `json:"is_suspect,omitempty"`
+	SuspicionReasons            []string          `json:"suspicion_reasons,omitempty"`
+	ExtraHeaders                map[string]string `json:"-"`
 }
 
 type BatchRequest struct {
@@ -96,6 +114,9 @@ func (e *Event) Validate(cfg config.Config) error {
 	if err := validateURLField(e.Referrer, cfg.MaxFieldLength); err != nil {
 		return err
 	}
+	if err := validateTimezone(e.Timezone, e.TimezoneOffsetMinutes); err != nil {
+		return err
+	}
 	if err := validatePayload(e.Payload, cfg.MaxPayloadEntries, cfg.MaxPayloadDepth, cfg.MaxFieldLength); err != nil {
 		return err
 	}
@@ -120,7 +141,10 @@ func Enrich(r *http.Request, cfg config.Config, event *Event, now time.Time) (st
 	event.RequestDomain = config.NormalizeDomain(event.RequestHost)
 	resolvedClientIP := clientIP(r, cfg.TrustProxyHeaders)
 	event.UserAgent = strings.TrimSpace(r.Header.Get("User-Agent"))
+	applyUserAgentDetails(event)
 	event.AcceptLanguage = strings.TrimSpace(r.Header.Get("Accept-Language"))
+	applyAcceptLanguageDetails(event)
+	applyTimezoneDetails(event)
 	event.Origin = strings.TrimSpace(r.Header.Get("Origin"))
 	event.RefererHeader = strings.TrimSpace(r.Header.Get("Referer"))
 	if cfg.SanitizeURLs {
@@ -226,6 +250,18 @@ func validateURLField(raw string, max int) error {
 	}
 	if parsed.Scheme != "" && parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return errors.New("invalid url scheme")
+	}
+	return nil
+}
+
+func validateTimezone(name string, offsetMinutes *int) error {
+	if strings.TrimSpace(name) != "" {
+		if _, err := time.LoadLocation(strings.TrimSpace(name)); err != nil {
+			return errors.New("invalid timezone")
+		}
+	}
+	if offsetMinutes != nil && (*offsetMinutes < -840 || *offsetMinutes > 840) {
+		return errors.New("invalid timezone offset")
 	}
 	return nil
 }

@@ -174,7 +174,29 @@ func BuildBulkPayload(dataStream string, batch []events.Event) ([]byte, error) {
 		}
 		addIfNotEmpty(document, "forwarded_for", event.ForwardedFor)
 		addIfNotEmpty(document, "user_agent", event.UserAgent)
+		addIfNotEmpty(document, "browser_family", event.BrowserFamily)
+		addIfNotEmpty(document, "browser_version", event.BrowserVersion)
+		addIfNotEmpty(document, "browser_major", event.BrowserMajor)
+		addIfNotEmpty(document, "browser_engine", event.BrowserEngine)
+		addIfNotEmpty(document, "os_family", event.OSFamily)
+		addIfNotEmpty(document, "os_version", event.OSVersion)
+		addIfNotEmpty(document, "device_family", event.DeviceFamily)
+		addIfNotEmpty(document, "device_brand", event.DeviceBrand)
+		addIfNotEmpty(document, "device_model", event.DeviceModel)
+		addIfNotEmpty(document, "device_type", event.DeviceType)
 		addIfNotEmpty(document, "accept_language", event.AcceptLanguage)
+		addIfNotEmpty(document, "accept_language_primary_tag", event.AcceptLanguagePrimaryTag)
+		addIfNotEmpty(document, "accept_language_primary_base", event.AcceptLanguagePrimaryBase)
+		addIfNotEmpty(document, "accept_language_primary_region", event.AcceptLanguagePrimaryRegion)
+		if len(event.AcceptLanguageTags) > 0 {
+			document["accept_language_tags"] = event.AcceptLanguageTags
+		}
+		addIfNotEmpty(document, "timezone", event.Timezone)
+		addIfNotEmpty(document, "timezone_area", event.TimezoneArea)
+		addIfNotEmpty(document, "timezone_location", event.TimezoneLocation)
+		if event.TimezoneOffsetMinutes != nil {
+			document["timezone_offset_minutes"] = *event.TimezoneOffsetMinutes
+		}
 		addIfNotEmpty(document, "origin", event.Origin)
 		addIfNotEmpty(document, "referer_header", event.RefererHeader)
 		addIfNotEmpty(document, "scheme", event.Scheme)
