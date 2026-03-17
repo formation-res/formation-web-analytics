@@ -79,6 +79,32 @@ If your environment uses egress controls, allow HTTPS redirects to:
 
 - `mm-prod-geoip-databases.a2649acb697e2c09b632799562c076f2.r2.cloudflarestorage.com`
 
+## Docker Hub publishing
+
+This repository includes a GitHub Actions workflow at `.github/workflows/docker-publish.yml` that publishes the server container to Docker Hub when a new Git tag is pushed.
+
+The workflow currently pushes:
+
+- `tryformation/formation-web-analytics-server:<tag>`
+
+Required GitHub repository secrets:
+
+- `DOCKERHUB_USERNAME`: the Docker Hub user or service account name
+- `DOCKERHUB_PASSWORD`: the Docker Hub password or access token for that account
+
+The Docker Hub account behind that token must have permission to push to the `tryformation` organization repository.
+
+Example release flow:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+That will publish `tryformation/formation-web-analytics-server:v0.1.0`.
+
+The published image does not bundle a MaxMind database. You should keep `geoipupdate` as a separate runtime sidecar or companion job that downloads `GeoLite2-City.mmdb` with your own MaxMind credentials and mounts it into the collector container.
+
 ## Test Elasticsearch
 
 Start a local Elasticsearch 9 node with:
