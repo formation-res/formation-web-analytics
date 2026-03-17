@@ -15,6 +15,7 @@ require_cmd docker
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ES_URL="${ES_URL:-http://localhost:9990}"
+DATA_STREAM_NAME="${DATA_STREAM_NAME:-web-analytics}"
 DEFAULT_PORT=$((18080 + ($$ % 1000)))
 LISTEN_ADDR="${LISTEN_ADDR:-127.0.0.1:${DEFAULT_PORT}}"
 COLLECT_URL="http://${LISTEN_ADDR}/collect"
@@ -39,12 +40,12 @@ until curl -fsS "${ES_URL}/_cluster/health" >/dev/null; do
   sleep 2
 done
 
-./scripts/create-data-stream-and-templates.sh --es-url "$ES_URL" >/dev/null
+./scripts/create-data-stream-and-templates.sh --es-url "$ES_URL" --data-stream-name "$DATA_STREAM_NAME" >/dev/null
 go run ./tools/generate-test-geoip-db "$GEOIP_DB_FILE" >/dev/null
 
 ALLOWED_DOMAINS=example.com \
 ELASTICSEARCH_URL="$ES_URL" \
-ELASTICSEARCH_DATA_STREAM=analytics-events \
+ELASTICSEARCH_DATA_STREAM="$DATA_STREAM_NAME" \
 ELASTICSEARCH_API_KEY=dummy \
 GEOIP_DB_PATH="$GEOIP_DB_FILE" \
 LISTEN_ADDR="$LISTEN_ADDR" \
@@ -71,7 +72,7 @@ curl -fsS -X POST "$COLLECT_URL" \
   -d "{\"type\":\"page_view\",\"site_id\":\"${SITE_ID}\",\"path\":\"/pricing\",\"url\":\"https://example.com/pricing\",\"payload\":{\"utm_source\":\"smoke\"}}" >/dev/null
 
 for _ in $(seq 1 20); do
-  response="$(curl -fsS "${ES_URL}/analytics-events/_search" -H 'Content-Type: application/json' -d "{\"size\":1,\"query\":{\"term\":{\"site_id\":\"${SITE_ID}\"}}}")"
+  response="$(curl -fsS "${ES_URL}/${DATA_STREAM_NAME}/_search" -H 'Content-Type: application/json' -d "{\"size\":1,\"query\":{\"term\":{\"site_id\":\"${SITE_ID}\"}}}")"
   hits="$(printf '%s' "$response" | jq '.hits.total.value')"
   if [[ "$hits" -ge 1 ]]; then
     geo_code="$(printf '%s' "$response" | jq -r '.hits.hits[0]._source.geo_country_iso_code')"
@@ -79,7 +80,7 @@ for _ in $(seq 1 20); do
       echo "Smoke test failed: expected geo_country_iso_code=EX, got $geo_code" >&2
       exit 1
     fi
-    echo "Smoke test passed: event indexed into analytics-events with geolocation"
+    echo "Smoke test passed: event indexed into ${DATA_STREAM_NAME} with geolocation"
     exit 0
   fi
   sleep 1

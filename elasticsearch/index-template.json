@@ -1,6 +1,6 @@
 {
-  "index_patterns": ["analytics-events*"],
+  "index_patterns": ["web-analytics*"],
   "data_stream": {},
-  "composed_of": ["analytics-events-common"],
+  "composed_of": ["web-analytics-template-settings", "web-analytics-template-mappings"],
   "priority": 500
 }

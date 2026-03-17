@@ -63,7 +63,7 @@ func Load(version string) (Config, error) {
 		ElasticsearchPassword: strings.TrimSpace(
 			os.Getenv("ELASTICSEARCH_PASSWORD"),
 		),
-		DataStream:       envOrDefault("ELASTICSEARCH_DATA_STREAM", "analytics-events"),
+		DataStream:       envOrDefault("ELASTICSEARCH_DATA_STREAM", "web-analytics"),
 		GeoIPDBPath:      strings.TrimSpace(os.Getenv("GEOIP_DB_PATH")),
 		LogLevel:         envOrDefault("LOG_LEVEL", "info"),
 		CollectorVersion: version,

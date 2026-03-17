@@ -1,10 +1,10 @@
 {
   "template": {
     "settings": {
-      "index.lifecycle.name": "analytics-events-policy"
+      "index.lifecycle.name": "web-analytics-ilm-policy"
     },
     "mappings": {
-      "dynamic": true,
+      "dynamic": false,
       "properties": {
         "@timestamp": { "type": "date" },
         "received_at": { "type": "date" },
@@ -31,7 +31,7 @@
         "forwarded_for": { "type": "wildcard" },
         "user_agent": { "type": "wildcard" },
         "accept_language": { "type": "keyword" },
-        "origin": { "type": "keyword" },
+        "origin": { "type": "wildcard" },
         "referer_header": { "type": "wildcard" },
         "scheme": { "type": "keyword" },
         "remote_addr": { "type": "keyword" },

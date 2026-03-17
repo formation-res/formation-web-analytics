@@ -10,7 +10,7 @@ import (
 
 func TestBuildBulkPayload(t *testing.T) {
 	now := time.Unix(0, 0).UTC()
-	payload, err := BuildBulkPayload("analytics-events", []events.Event{{
+	payload, err := BuildBulkPayload("web-analytics", []events.Event{{
 		Type:       "page_view",
 		SiteID:     "site",
 		Timestamp:  now.Format(time.RFC3339Nano),
@@ -23,7 +23,7 @@ func TestBuildBulkPayload(t *testing.T) {
 		t.Fatalf("expected payload generation to succeed: %v", err)
 	}
 	text := string(payload)
-	if !strings.Contains(text, "\"_index\":\"analytics-events\"") {
+	if !strings.Contains(text, "\"_index\":\"web-analytics\"") {
 		t.Fatalf("expected data stream in payload: %s", text)
 	}
 	if !strings.Contains(text, "\"type\":\"page_view\"") {

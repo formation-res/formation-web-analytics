@@ -7,7 +7,7 @@ Usage: create-data-stream-and-templates.sh [options]
 
 Options:
   --es-url URL                    Elasticsearch base URL (default: http://localhost:9990)
-  --data-stream-name NAME         Data stream name (default: analytics-events)
+  --data-stream-name NAME         Data stream name (default: web-analytics)
   --configure-ilm true|false      Create/update ILM policy (default: true)
   --hot-rollover-gb N             Hot rollover primary shard size in GB (default: 20)
   --hot-max-age VALUE             Hot rollover max age (default: 7d)
@@ -35,7 +35,7 @@ require_cmd() {
 }
 
 ES_URL="${ES_URL:-http://localhost:9990}"
-DATA_STREAM_NAME="${DATA_STREAM_NAME:-analytics-events}"
+DATA_STREAM_NAME="${DATA_STREAM_NAME:-web-analytics}"
 CONFIGURE_ILM="${CONFIGURE_ILM:-true}"
 HOT_ROLLOVER_GB="${HOT_ROLLOVER_GB:-20}"
 HOT_MAX_AGE="${HOT_MAX_AGE:-7d}"
@@ -155,7 +155,7 @@ echo "Creating component template $TEMPLATE_MAPPINGS ..."
 curl_put "$ES_URL/_component_template/$TEMPLATE_MAPPINGS" "{
   \"template\": {
     \"mappings\": {
-      \"dynamic\": true,
+      \"dynamic\": false,
       \"properties\": {
         \"@timestamp\": {\"type\": \"date\"},
         \"received_at\": {\"type\": \"date\"},
@@ -182,7 +182,7 @@ curl_put "$ES_URL/_component_template/$TEMPLATE_MAPPINGS" "{
         \"forwarded_for\": {\"type\": \"wildcard\"},
         \"user_agent\": {\"type\": \"wildcard\"},
         \"accept_language\": {\"type\": \"keyword\"},
-        \"origin\": {\"type\": \"keyword\"},
+        \"origin\": {\"type\": \"wildcard\"},
         \"referer_header\": {\"type\": \"wildcard\"},
         \"scheme\": {\"type\": \"keyword\"},
         \"remote_addr\": {\"type\": \"keyword\"},
@@ -222,3 +222,19 @@ echo "--- Index Template ($INDEX_TEMPLATE) ---"
 curl -s "$ES_URL/_index_template/$INDEX_TEMPLATE?pretty" | jq .
 echo "--- Data Stream ($PREFIX) ---"
 curl -s "$ES_URL/_data_stream/$PREFIX?pretty" | jq .
+
+echo
+echo "=== SUMMARY ==="
+echo "Created data stream: $PREFIX"
+echo "Created index template: $INDEX_TEMPLATE"
+echo "Created component template (settings): $TEMPLATE_SETTINGS"
+echo "Created component template (mappings): $TEMPLATE_MAPPINGS"
+if truthy "$CONFIGURE_ILM"; then
+  echo "Created ILM policy: $ILM_POLICY"
+else
+  echo "ILM policy: skipped (--configure-ilm false)"
+fi
+echo "Settings: shards=$NUMBER_OF_SHARDS replicas=$NUMBER_OF_REPLICAS hot_max_age=$HOT_MAX_AGE hot_rollover_gb=${HOT_ROLLOVER_GB} delete_min_age=$DELETE_MIN_AGE"
+echo
+echo "Recommended next step: trigger a rollover once to initialize backing index generation."
+echo "curl -X POST \"$ES_URL/$PREFIX/_rollover?pretty\" -H \"Content-Type: application/json\" -d '{}'"

@@ -21,10 +21,13 @@ Metrics are disabled by default; when enabled, `GET /metrics` is served on a sep
 1. Copy `.env.example` to `.env` and set Elasticsearch credentials.
 2. Set `MAXMIND_ACCOUNT_ID` and `MAXMIND_LICENSE_KEY`.
 3. For non-Docker runs, download/update `GeoLite2-City.mmdb` locally with `geoipupdate` and point `GEOIP_DB_PATH` at it.
-4. Run `make test-backend`.
-5. Run `go run ./cmd/collector`.
-6. Or start the deployment stack with `docker compose up --build`.
-7. Run `make smoke-test` for a local collector-to-Elasticsearch verification.
+4. Start local Elasticsearch with `docker compose -f docker-compose.elasticsearch.yml up -d`.
+5. Create the default `web-analytics` data stream, ILM policy, and templates with `./scripts/create-data-stream-and-templates.sh`.
+   Use `--data-stream-name your-name` if you want a different data stream.
+6. Run `make test-backend`.
+7. Run `go run ./cmd/collector`.
+8. Or start the deployment stack with `docker compose up --build`.
+9. Run `make smoke-test` for a local collector-to-Elasticsearch verification.
 
 ## GeoIP updates
 
@@ -53,11 +56,26 @@ Start a local Elasticsearch 9 node with:
 docker compose -f docker-compose.elasticsearch.yml up -d
 ```
 
-Provision the analytics data stream, ILM policy, and templates with:
+Provision the default `web-analytics` data stream, ILM policy, and templates with:
 
 ```bash
 ./scripts/create-data-stream-and-templates.sh
 ```
+
+Or specify a different data stream name:
+
+```bash
+./scripts/create-data-stream-and-templates.sh --data-stream-name your-data-stream
+```
+
+The script creates:
+
+- data stream `<name>` where the default is `web-analytics`
+- ILM policy `<name>-ilm-policy`
+- component templates `<name>-template-settings` and `<name>-template-mappings`
+- index template `<name>-template`
+
+The mappings are tuned for this collector's analytics event shape: fixed top-level dimensions as keywords/dates/IP or wildcard fields, and a `payload` field stored as `flattened` for arbitrary event properties without unbounded mapping growth.
 
 ## Guard rails
 

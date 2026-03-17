@@ -247,7 +247,7 @@ func TestEndToEndCollectFlushesToBulkEndpoint(t *testing.T) {
 		RetryMaxBackoff:     time.Millisecond,
 		ElasticsearchURL:    esServer.URL,
 		ElasticsearchAPIKey: "test",
-		DataStream:          "analytics-events",
+		DataStream:          "web-analytics",
 		CollectorVersion:    "test",
 	}
 	registry := metrics.New()
