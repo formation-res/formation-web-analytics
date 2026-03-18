@@ -58,6 +58,23 @@
         "traffic_quality": { "type": "keyword" },
         "is_suspect": { "type": "boolean" },
         "suspicion_reasons": { "type": "keyword" },
+        "conversation_id": { "type": "keyword" },
+        "turn_index": { "type": "integer" },
+        "locale": { "type": "keyword" },
+        "consent_state": { "type": "keyword" },
+        "conversation_stage": { "type": "keyword" },
+        "actor": { "type": "keyword" },
+        "message_role": { "type": "keyword" },
+        "message_format": { "type": "keyword" },
+        "response_kind": { "type": "keyword" },
+        "source": { "type": "keyword" },
+        "action_type": { "type": "keyword" },
+        "has_read_more": { "type": "boolean" },
+        "has_suggestions": { "type": "boolean" },
+        "initiated_by": { "type": "keyword" },
+        "navigation_source": { "type": "keyword" },
+        "destination_title": { "type": "keyword" },
+        "destination_href": { "type": "wildcard" },
         "payload": { "type": "flattened" }
       }
     }

@@ -173,7 +173,7 @@ The mappings are tuned for this collector's analytics event shape: fixed top-lev
 - `Content-Type` must be `application/json` when present.
 - Requests larger than `MAX_PAYLOAD_BYTES` are rejected.
 - Batches larger than `MAX_EVENTS_PER_REQUEST` are rejected.
-- Core string fields are bounded by `MAX_FIELD_LENGTH`.
+- Core string fields are bounded by `MAX_FIELD_LENGTH` (default `10240`, about 10 KB).
 - `payload` is bounded by `MAX_PAYLOAD_ENTRIES` and `MAX_PAYLOAD_DEPTH`.
 - Unknown top-level JSON fields are rejected.
 - `GEOIP_DB_PATH` is required; ingest startup fails without a local database.

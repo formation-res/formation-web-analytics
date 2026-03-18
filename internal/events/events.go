@@ -123,6 +123,20 @@ func (e *Event) Validate(cfg config.Config) error {
 	return nil
 }
 
+func (e *Event) ApplyFieldLimits(cfg config.Config) {
+	e.SessionID = truncateString(e.SessionID, cfg.MaxFieldLength)
+	e.AnonymousID = truncateString(e.AnonymousID, cfg.MaxFieldLength)
+	if e.UserID != nil {
+		truncated := truncateString(*e.UserID, cfg.MaxFieldLength)
+		e.UserID = &truncated
+	}
+	e.Path = truncateString(e.Path, cfg.MaxFieldLength)
+	e.Title = truncateString(e.Title, cfg.MaxFieldLength)
+	e.URL = truncateURLField(e.URL, cfg.MaxFieldLength)
+	e.Referrer = truncateURLField(e.Referrer, cfg.MaxFieldLength)
+	e.Payload = truncatePayload(e.Payload, cfg.MaxFieldLength)
+}
+
 func (e Event) TimestampValue() time.Time {
 	if t, err := time.Parse(time.RFC3339Nano, e.Timestamp); err == nil {
 		return t.UTC()
@@ -237,6 +251,13 @@ func tooLong(value string, max int) bool {
 	return len(value) > max
 }
 
+func truncateString(value string, max int) string {
+	if max <= 0 || len(value) <= max {
+		return value
+	}
+	return value[:max]
+}
+
 func validateURLField(raw string, max int) error {
 	if raw == "" {
 		return nil
@@ -252,6 +273,42 @@ func validateURLField(raw string, max int) error {
 		return errors.New("invalid url scheme")
 	}
 	return nil
+}
+
+func truncateURLField(raw string, max int) string {
+	if max <= 0 || len(raw) <= max {
+		return raw
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	parsed.RawQuery = ""
+	parsed.ForceQuery = false
+	parsed.Fragment = ""
+	if parsed.User != nil {
+		parsed.User = nil
+	}
+	candidate := parsed.String()
+	if len(candidate) <= max {
+		return candidate
+	}
+
+	prefix := ""
+	if parsed.Scheme != "" {
+		prefix = parsed.Scheme + "://"
+	}
+	prefix += parsed.Host
+	if len(prefix) >= max {
+		return ""
+	}
+
+	path := parsed.EscapedPath()
+	if path == "" {
+		path = parsed.Path
+	}
+	remaining := max - len(prefix)
+	return prefix + truncateString(path, remaining)
 }
 
 func validateTimezone(name string, offsetMinutes *int) error {
@@ -305,6 +362,35 @@ func validatePayload(payload map[string]any, maxEntries, maxDepth, maxFieldLengt
 		return errors.New("payload has too many entries")
 	}
 	return nil
+}
+
+func truncatePayload(payload map[string]any, maxFieldLength int) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	for key, value := range payload {
+		payload[key] = truncatePayloadValue(value, maxFieldLength)
+	}
+	return payload
+}
+
+func truncatePayloadValue(value any, maxFieldLength int) any {
+	switch typed := value.(type) {
+	case string:
+		return truncateString(typed, maxFieldLength)
+	case map[string]any:
+		for key, nested := range typed {
+			typed[key] = truncatePayloadValue(nested, maxFieldLength)
+		}
+		return typed
+	case []any:
+		for i, nested := range typed {
+			typed[i] = truncatePayloadValue(nested, maxFieldLength)
+		}
+		return typed
+	default:
+		return value
+	}
 }
 
 func validatePayloadValue(value any, depth, maxDepth, maxFieldLength int) (int, error) {

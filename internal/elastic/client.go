@@ -204,6 +204,7 @@ func BuildBulkPayload(dataStream string, batch []events.Event) ([]byte, error) {
 		if len(event.SuspicionReasons) > 0 {
 			document["suspicion_reasons"] = event.SuspicionReasons
 		}
+		promotePayloadFields(document, event.Payload)
 		if err := encoder.Encode(document); err != nil {
 			return nil, err
 		}
@@ -211,9 +212,68 @@ func BuildBulkPayload(dataStream string, batch []events.Event) ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
+func promotePayloadFields(document map[string]any, payload map[string]any) {
+	if len(payload) == 0 {
+		return
+	}
+
+	promoteStringField(document, payload, "conversation_id")
+	promoteIntegerField(document, payload, "turn_index")
+	promoteStringField(document, payload, "locale")
+	promoteStringField(document, payload, "consent_state")
+	promoteStringField(document, payload, "conversation_stage")
+	promoteStringField(document, payload, "actor")
+	promoteStringField(document, payload, "message_role")
+	promoteStringField(document, payload, "message_format")
+	promoteStringField(document, payload, "response_kind")
+	promoteStringField(document, payload, "source")
+	promoteStringField(document, payload, "action_type")
+	promoteBooleanField(document, payload, "has_read_more")
+	promoteBooleanField(document, payload, "has_suggestions")
+	promoteStringField(document, payload, "initiated_by")
+	promoteStringField(document, payload, "navigation_source")
+	promoteStringField(document, payload, "destination_title")
+	promoteStringField(document, payload, "destination_href")
+}
+
 func addIfNotEmpty(document map[string]any, key, value string) {
 	if value != "" {
 		document[key] = value
+	}
+}
+
+func promoteStringField(document, payload map[string]any, key string) {
+	value, ok := payload[key].(string)
+	if !ok || value == "" {
+		return
+	}
+	document[key] = value
+}
+
+func promoteBooleanField(document, payload map[string]any, key string) {
+	value, ok := payload[key].(bool)
+	if !ok {
+		return
+	}
+	document[key] = value
+}
+
+func promoteIntegerField(document, payload map[string]any, key string) {
+	value, ok := payload[key]
+	if !ok {
+		return
+	}
+	switch typed := value.(type) {
+	case int:
+		document[key] = typed
+	case int32:
+		document[key] = typed
+	case int64:
+		document[key] = typed
+	case float64:
+		if typed == float64(int64(typed)) {
+			document[key] = int64(typed)
+		}
 	}
 }
 

@@ -141,9 +141,15 @@ func (s *Server) handleCollect(w http.ResponseWriter, r *http.Request) {
 			s.respondError(w, http.StatusForbidden, "url_host_mismatch")
 			return
 		}
+		eventBatch[i].ApplyFieldLimits(s.cfg)
 		if err := eventBatch[i].Validate(s.cfg); err != nil {
+			s.logger.Info("event validation failed",
+				"site_id", eventBatch[i].SiteID,
+				"type", eventBatch[i].Type,
+				"reason", err.Error(),
+			)
 			s.metrics.IncRejected(1)
-			s.respondError(w, http.StatusBadRequest, "invalid_event")
+			s.respondErrorWithDetail(w, http.StatusBadRequest, "invalid_event", err.Error())
 			return
 		}
 		if geoResult, ok := s.geo.Lookup(resolvedClientIP); ok {
@@ -294,6 +300,10 @@ func (s *Server) respondOK(w http.ResponseWriter) {
 
 func (s *Server) respondError(w http.ResponseWriter, status int, code string) {
 	s.respondJSON(w, status, map[string]any{"ok": false, "error": code})
+}
+
+func (s *Server) respondErrorWithDetail(w http.ResponseWriter, status int, code, detail string) {
+	s.respondJSON(w, status, map[string]any{"ok": false, "error": code, "detail": detail})
 }
 
 func (s *Server) respondJSON(w http.ResponseWriter, status int, payload any) {

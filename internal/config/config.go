@@ -113,7 +113,7 @@ func Load(version string) (Config, error) {
 	if cfg.MaxEventsPerRequest, err = intValue("MAX_EVENTS_PER_REQUEST", 100); err != nil {
 		return Config{}, err
 	}
-	if cfg.MaxFieldLength, err = intValue("MAX_FIELD_LENGTH", 2048); err != nil {
+	if cfg.MaxFieldLength, err = intValue("MAX_FIELD_LENGTH", 10240); err != nil {
 		return Config{}, err
 	}
 	if cfg.MaxPayloadEntries, err = intValue("MAX_PAYLOAD_ENTRIES", 128); err != nil {

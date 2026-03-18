@@ -42,7 +42,23 @@ func TestBuildBulkPayload(t *testing.T) {
 			"user_agent:headless",
 		},
 		Payload: map[string]any{
-			"utm_source": "google",
+			"utm_source":          "google",
+			"conversation_id":    "conversation-123",
+			"turn_index":         float64(4),
+			"locale":             "en",
+			"consent_state":      "accepted",
+			"conversation_stage": "profile_collection",
+			"actor":              "assistant",
+			"message_role":       "assistant",
+			"message_format":     "rendered_html",
+			"response_kind":      "survey_prompt",
+			"source":             "command",
+			"has_read_more":      false,
+			"has_suggestions":    true,
+			"initiated_by":       "assistant",
+			"navigation_source":  "assistant_payload",
+			"destination_title":  "See Services",
+			"destination_href":   "/services/",
 		},
 	}})
 	if err != nil {
@@ -72,6 +88,15 @@ func TestBuildBulkPayload(t *testing.T) {
 	}
 	if !strings.Contains(text, "\"geo_location\":{\"lat\":52.3676,\"lon\":4.9041}") {
 		t.Fatalf("expected geo point in payload: %s", text)
+	}
+	if !strings.Contains(text, "\"conversation_id\":\"conversation-123\"") || !strings.Contains(text, "\"turn_index\":4") {
+		t.Fatalf("expected promoted conversation fields in payload: %s", text)
+	}
+	if !strings.Contains(text, "\"response_kind\":\"survey_prompt\"") || !strings.Contains(text, "\"has_suggestions\":true") {
+		t.Fatalf("expected promoted chat fields in payload: %s", text)
+	}
+	if !strings.Contains(text, "\"destination_href\":\"/services/\"") || !strings.Contains(text, "\"navigation_source\":\"assistant_payload\"") {
+		t.Fatalf("expected promoted navigation fields in payload: %s", text)
 	}
 	if strings.Contains(text, "\"forwarded_for\"") || strings.Contains(text, "\"remote_addr\"") {
 		t.Fatalf("expected empty IP metadata fields to be omitted: %s", text)
