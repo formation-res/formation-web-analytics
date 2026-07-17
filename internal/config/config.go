@@ -48,6 +48,7 @@ type Config struct {
 	BlockedUserAgents     []string
 	SuspectUserAgents     []string
 	RateLimitPerMinute    int
+	RateLimitMaxClients   int
 	DropPolicy            DropPolicy
 	LogLevel              string
 	RetentionDays         int
@@ -170,6 +171,9 @@ func Load(version string) (Config, error) {
 	if cfg.RateLimitPerMinute, err = intValue("RATE_LIMIT_PER_MINUTE", 300); err != nil {
 		return Config{}, err
 	}
+	if cfg.RateLimitMaxClients, err = intValue("RATE_LIMIT_MAX_CLIENTS", 100000); err != nil {
+		return Config{}, err
+	}
 	cfg.BlockedUserAgents = parseList(envOrDefault("BLOCKED_USER_AGENTS", "bot,crawler,spider,curl,wget,python-requests,go-http-client"))
 	cfg.SuspectUserAgents = parseList(envOrDefault("SUSPECT_USER_AGENTS", "headless,playwright,puppeteer,selenium,phantomjs"))
 
@@ -178,8 +182,14 @@ func Load(version string) (Config, error) {
 		return Config{}, fmt.Errorf("invalid DROP_POLICY %q", cfg.DropPolicy)
 	}
 
-	if cfg.MaxBatchSize <= 0 || cfg.MaxQueueSize <= 0 || cfg.MaxPayloadBytes <= 0 || cfg.MaxEventsPerRequest <= 0 || cfg.MaxFieldLength <= 0 || cfg.MaxPayloadEntries <= 0 || cfg.MaxPayloadDepth <= 0 || cfg.MaxRetries < 0 || cfg.RateLimitPerMinute < 0 {
+	if cfg.MaxBatchSize <= 0 || cfg.MaxQueueSize <= 0 || cfg.MaxPayloadBytes <= 0 || cfg.MaxEventsPerRequest <= 0 || cfg.MaxFieldLength <= 0 || cfg.MaxPayloadEntries <= 0 || cfg.MaxPayloadDepth <= 0 || cfg.MaxRetries < 0 || cfg.RateLimitPerMinute < 0 || cfg.RateLimitMaxClients <= 0 {
 		return Config{}, errors.New("numeric config values must be positive")
+	}
+	if cfg.FlushInterval <= 0 || cfg.RetryMinBackoff <= 0 || cfg.RetryMaxBackoff <= 0 || cfg.ReadTimeout <= 0 || cfg.WriteTimeout <= 0 || cfg.IdleTimeout <= 0 {
+		return Config{}, errors.New("duration config values must be positive")
+	}
+	if cfg.RetryMinBackoff > cfg.RetryMaxBackoff {
+		return Config{}, errors.New("RETRY_MIN_BACKOFF must not exceed RETRY_MAX_BACKOFF")
 	}
 
 	return cfg, nil

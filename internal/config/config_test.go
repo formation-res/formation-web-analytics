@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -52,11 +53,44 @@ func TestLoadParsesDomainsAndDefaults(t *testing.T) {
 	if cfg.RateLimitPerMinute != 300 {
 		t.Fatalf("expected default rate limit, got %d", cfg.RateLimitPerMinute)
 	}
+	if cfg.RateLimitMaxClients != 100000 {
+		t.Fatalf("expected default rate-limit client cap, got %d", cfg.RateLimitMaxClients)
+	}
 	if len(cfg.BlockedUserAgents) == 0 {
 		t.Fatal("expected default blocked user agents")
 	}
 	if len(cfg.SuspectUserAgents) == 0 {
 		t.Fatal("expected default suspect user agents")
+	}
+}
+
+func TestLoadRejectsUnsafeDurations(t *testing.T) {
+	tests := map[string]string{
+		"zero flush interval":     "FLUSH_INTERVAL=0s",
+		"zero retry minimum":      "RETRY_MIN_BACKOFF=0s",
+		"zero retry maximum":      "RETRY_MAX_BACKOFF=0s",
+		"zero read timeout":       "READ_TIMEOUT=0s",
+		"zero write timeout":      "WRITE_TIMEOUT=0s",
+		"zero idle timeout":       "IDLE_TIMEOUT=0s",
+		"reversed retry backoffs": "RETRY_MIN_BACKOFF=2s,RETRY_MAX_BACKOFF=1s",
+	}
+	for name, values := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("ALLOWED_DOMAINS", "example.com")
+			t.Setenv("ELASTICSEARCH_URL", "http://localhost:9200")
+			t.Setenv("ELASTICSEARCH_API_KEY", "test")
+			t.Setenv("GEOIP_DB_PATH", "/tmp/GeoLite2-City.mmdb")
+			for _, assignment := range strings.Split(values, ",") {
+				key, value, ok := strings.Cut(assignment, "=")
+				if !ok {
+					t.Fatalf("invalid test assignment %q", assignment)
+				}
+				t.Setenv(key, value)
+			}
+			if _, err := Load("test"); err == nil {
+				t.Fatal("expected unsafe duration to be rejected")
+			}
+		})
 	}
 }
 

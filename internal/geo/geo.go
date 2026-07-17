@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"net/netip"
+	"os"
+	"sync"
 
 	"github.com/oschwald/maxminddb-golang/v2"
 )
@@ -22,11 +24,15 @@ type Result struct {
 
 type Resolver interface {
 	Lookup(ip string) (Result, bool)
+	ReloadIfChanged() (bool, error)
 	Close() error
 }
 
 type maxMindResolver struct {
-	reader *maxminddb.Reader
+	mu       sync.RWMutex
+	reader   *maxminddb.Reader
+	path     string
+	fileInfo os.FileInfo
 }
 
 type cityRecord struct {
@@ -48,7 +54,12 @@ func New(path string) (Resolver, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open geoip db: %w", err)
 	}
-	return &maxMindResolver{reader: reader}, nil
+	info, err := os.Stat(path)
+	if err != nil {
+		_ = reader.Close()
+		return nil, fmt.Errorf("stat geoip db: %w", err)
+	}
+	return &maxMindResolver{reader: reader, path: path, fileInfo: info}, nil
 }
 
 func (r *maxMindResolver) Lookup(rawIP string) (Result, bool) {
@@ -57,6 +68,8 @@ func (r *maxMindResolver) Lookup(rawIP string) (Result, bool) {
 		return Result{}, false
 	}
 	var record cityRecord
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if err := r.reader.Lookup(ip).Decode(&record); err != nil {
 		return Result{}, false
 	}
@@ -74,7 +87,38 @@ func (r *maxMindResolver) Lookup(rawIP string) (Result, bool) {
 	return result, true
 }
 
+func (r *maxMindResolver) ReloadIfChanged() (bool, error) {
+	info, err := os.Stat(r.path)
+	if err != nil {
+		return false, fmt.Errorf("stat geoip db: %w", err)
+	}
+
+	r.mu.RLock()
+	unchanged := os.SameFile(info, r.fileInfo) && info.ModTime().Equal(r.fileInfo.ModTime()) && info.Size() == r.fileInfo.Size()
+	r.mu.RUnlock()
+	if unchanged {
+		return false, nil
+	}
+
+	reader, err := maxminddb.Open(r.path)
+	if err != nil {
+		return false, fmt.Errorf("reload geoip db: %w", err)
+	}
+
+	r.mu.Lock()
+	oldReader := r.reader
+	r.reader = reader
+	r.fileInfo = info
+	r.mu.Unlock()
+	if err := oldReader.Close(); err != nil {
+		return true, fmt.Errorf("close previous geoip db: %w", err)
+	}
+	return true, nil
+}
+
 func (r *maxMindResolver) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.reader.Close()
 }
 

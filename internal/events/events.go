@@ -2,14 +2,18 @@ package events
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/formation-res/formation-web-analytics/internal/config"
@@ -17,6 +21,7 @@ import (
 )
 
 type Event struct {
+	DocumentID                  string            `json:"-"`
 	Type                        string            `json:"type"`
 	SiteID                      string            `json:"site_id"`
 	Timestamp                   string            `json:"timestamp,omitempty"`
@@ -68,12 +73,25 @@ type Event struct {
 	ExtraHeaders                map[string]string `json:"-"`
 }
 
+func (e *Event) EnsureDocumentID() error {
+	if e.DocumentID != "" {
+		return nil
+	}
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return fmt.Errorf("generate document id: %w", err)
+	}
+	e.DocumentID = hex.EncodeToString(id[:])
+	return nil
+}
+
 type BatchRequest struct {
 	Events []Event `json:"events"`
 }
 
 var identifierPattern = regexp.MustCompile(`^[a-zA-Z0-9_.:-]{1,128}$`)
 var ErrEmptyBatch = errors.New("empty batch")
+var validTimezoneCache sync.Map
 
 func (e *Event) Normalize(now time.Time) {
 	e.ReceivedAt = now.UTC()
@@ -144,36 +162,128 @@ func (e Event) TimestampValue() time.Time {
 	return e.ReceivedAt.UTC()
 }
 
-func Enrich(r *http.Request, cfg config.Config, event *Event, now time.Time) (string, string) {
+type RequestMetadata struct {
+	requestHost                 string
+	requestDomain               string
+	clientIP                    string
+	userAgent                   string
+	browserFamily               string
+	browserVersion              string
+	browserMajor                string
+	browserEngine               string
+	osFamily                    string
+	osVersion                   string
+	deviceFamily                string
+	deviceBrand                 string
+	deviceModel                 string
+	deviceType                  string
+	acceptLanguage              string
+	acceptLanguagePrimaryTag    string
+	acceptLanguagePrimaryBase   string
+	acceptLanguagePrimaryRegion string
+	acceptLanguageTags          []string
+	origin                      string
+	refererHeader               string
+	scheme                      string
+	forwardedFor                string
+	remoteAddr                  string
+	collectorVersion            string
+}
+
+func NewRequestMetadata(r *http.Request, cfg config.Config) RequestMetadata {
+	template := Event{
+		UserAgent:      strings.TrimSpace(r.Header.Get("User-Agent")),
+		AcceptLanguage: strings.TrimSpace(r.Header.Get("Accept-Language")),
+	}
+	applyUserAgentDetails(&template)
+	applyAcceptLanguageDetails(&template)
+	refererHeader := strings.TrimSpace(r.Header.Get("Referer"))
+	if cfg.SanitizeURLs {
+		refererHeader = sanitizeURL(refererHeader)
+	}
+	metadata := RequestMetadata{
+		requestHost:                 effectiveHost(r, cfg.TrustProxyHeaders),
+		clientIP:                    clientIP(r, cfg.TrustProxyHeaders),
+		userAgent:                   template.UserAgent,
+		browserFamily:               template.BrowserFamily,
+		browserVersion:              template.BrowserVersion,
+		browserMajor:                template.BrowserMajor,
+		browserEngine:               template.BrowserEngine,
+		osFamily:                    template.OSFamily,
+		osVersion:                   template.OSVersion,
+		deviceFamily:                template.DeviceFamily,
+		deviceBrand:                 template.DeviceBrand,
+		deviceModel:                 template.DeviceModel,
+		deviceType:                  template.DeviceType,
+		acceptLanguage:              template.AcceptLanguage,
+		acceptLanguagePrimaryTag:    template.AcceptLanguagePrimaryTag,
+		acceptLanguagePrimaryBase:   template.AcceptLanguagePrimaryBase,
+		acceptLanguagePrimaryRegion: template.AcceptLanguagePrimaryRegion,
+		acceptLanguageTags:          template.AcceptLanguageTags,
+		origin:                      strings.TrimSpace(r.Header.Get("Origin")),
+		refererHeader:               refererHeader,
+		scheme:                      scheme(r, cfg.TrustProxyHeaders),
+		collectorVersion:            cfg.CollectorVersion,
+	}
+	metadata.requestDomain = config.NormalizeDomain(metadata.requestHost)
+	if cfg.StoreIPMetadata {
+		metadata.forwardedFor = strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
+		metadata.remoteAddr = r.RemoteAddr
+	}
+	return metadata
+}
+
+func (m RequestMetadata) Domain() string {
+	return m.requestDomain
+}
+
+func (m RequestMetadata) ClientIP() string {
+	return m.clientIP
+}
+
+func (m RequestMetadata) Enrich(cfg config.Config, event *Event, now time.Time) {
 	event.Normalize(now)
 	if cfg.SanitizeURLs {
 		event.URL = sanitizeURL(event.URL)
 		event.Referrer = sanitizeURL(event.Referrer)
 		event.Path = sanitizePath(event.Path)
 	}
-	event.RequestHost = effectiveHost(r, cfg.TrustProxyHeaders)
-	event.RequestDomain = config.NormalizeDomain(event.RequestHost)
-	resolvedClientIP := clientIP(r, cfg.TrustProxyHeaders)
-	event.UserAgent = strings.TrimSpace(r.Header.Get("User-Agent"))
-	applyUserAgentDetails(event)
-	event.AcceptLanguage = strings.TrimSpace(r.Header.Get("Accept-Language"))
-	applyAcceptLanguageDetails(event)
+	event.RequestHost = m.requestHost
+	event.RequestDomain = m.requestDomain
+	event.UserAgent = m.userAgent
+	event.BrowserFamily = m.browserFamily
+	event.BrowserVersion = m.browserVersion
+	event.BrowserMajor = m.browserMajor
+	event.BrowserEngine = m.browserEngine
+	event.OSFamily = m.osFamily
+	event.OSVersion = m.osVersion
+	event.DeviceFamily = m.deviceFamily
+	event.DeviceBrand = m.deviceBrand
+	event.DeviceModel = m.deviceModel
+	event.DeviceType = m.deviceType
+	event.AcceptLanguage = m.acceptLanguage
+	event.AcceptLanguagePrimaryTag = m.acceptLanguagePrimaryTag
+	event.AcceptLanguagePrimaryBase = m.acceptLanguagePrimaryBase
+	event.AcceptLanguagePrimaryRegion = m.acceptLanguagePrimaryRegion
+	event.AcceptLanguageTags = m.acceptLanguageTags
 	applyTimezoneDetails(event)
-	event.Origin = strings.TrimSpace(r.Header.Get("Origin"))
-	event.RefererHeader = strings.TrimSpace(r.Header.Get("Referer"))
-	if cfg.SanitizeURLs {
-		event.RefererHeader = sanitizeURL(event.RefererHeader)
-	}
-	event.Scheme = scheme(r, cfg.TrustProxyHeaders)
-	event.CollectorVersion = cfg.CollectorVersion
+	event.Origin = m.origin
+	event.RefererHeader = m.refererHeader
+	event.Scheme = m.scheme
+	event.CollectorVersion = m.collectorVersion
 	if cfg.CaptureClientIP {
-		event.ClientIP = resolvedClientIP
+		event.ClientIP = m.clientIP
 	}
 	if cfg.StoreIPMetadata {
-		event.ForwardedFor = strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
-		event.RemoteAddr = r.RemoteAddr
+		event.ForwardedFor = m.forwardedFor
+		event.RemoteAddr = m.remoteAddr
 	}
-	return event.RequestDomain, resolvedClientIP
+}
+
+func Enrich(r *http.Request, cfg config.Config, event *Event, now time.Time) (string, string) {
+	metadata := NewRequestMetadata(r, cfg)
+	metadata.Enrich(cfg, event, now)
+	return metadata.Domain(), metadata.ClientIP()
 }
 
 func DecodeBatch(body []byte) ([]Event, error) {
@@ -312,9 +422,13 @@ func truncateURLField(raw string, max int) string {
 }
 
 func validateTimezone(name string, offsetMinutes *int) error {
-	if strings.TrimSpace(name) != "" {
-		if _, err := time.LoadLocation(strings.TrimSpace(name)); err != nil {
-			return errors.New("invalid timezone")
+	name = strings.TrimSpace(name)
+	if name != "" {
+		if _, ok := validTimezoneCache.Load(name); !ok {
+			if _, err := time.LoadLocation(name); err != nil {
+				return errors.New("invalid timezone")
+			}
+			validTimezoneCache.Store(name, struct{}{})
 		}
 	}
 	if offsetMinutes != nil && (*offsetMinutes < -840 || *offsetMinutes > 840) {

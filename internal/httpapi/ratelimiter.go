@@ -6,9 +6,11 @@ import (
 )
 
 type rateLimiter struct {
-	limit   int
-	mu      sync.Mutex
-	clients map[string]rateLimitState
+	limit       int
+	maxClients  int
+	mu          sync.Mutex
+	clients     map[string]rateLimitState
+	windowStart time.Time
 }
 
 type rateLimitState struct {
@@ -16,10 +18,14 @@ type rateLimitState struct {
 	count       int
 }
 
-func newRateLimiter(limit int) *rateLimiter {
+func newRateLimiter(limit, maxClients int) *rateLimiter {
+	if maxClients <= 0 {
+		maxClients = 100000
+	}
 	return &rateLimiter{
-		limit:   limit,
-		clients: map[string]rateLimitState{},
+		limit:      limit,
+		maxClients: maxClients,
+		clients:    map[string]rateLimitState{},
 	}
 }
 
@@ -32,10 +38,16 @@ func (r *rateLimiter) Allow(clientID string, now time.Time) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.prune(windowStart)
-	state := r.clients[clientID]
+	if !r.windowStart.Equal(windowStart) {
+		r.clients = make(map[string]rateLimitState, min(r.maxClients, 1024))
+		r.windowStart = windowStart
+	}
+	state, exists := r.clients[clientID]
 	if !state.windowStart.Equal(windowStart) {
 		state = rateLimitState{windowStart: windowStart}
+	}
+	if !exists && len(r.clients) >= r.maxClients {
+		return false
 	}
 	if state.count >= r.limit {
 		r.clients[clientID] = state
@@ -44,13 +56,4 @@ func (r *rateLimiter) Allow(clientID string, now time.Time) bool {
 	state.count++
 	r.clients[clientID] = state
 	return true
-}
-
-func (r *rateLimiter) prune(activeWindow time.Time) {
-	cutoff := activeWindow.Add(-2 * time.Minute)
-	for clientID, state := range r.clients {
-		if state.windowStart.Before(cutoff) {
-			delete(r.clients, clientID)
-		}
-	}
 }

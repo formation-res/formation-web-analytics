@@ -1,12 +1,16 @@
 package elastic
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/formation-res/formation-web-analytics/internal/config"
 	"github.com/formation-res/formation-web-analytics/internal/events"
 	"github.com/formation-res/formation-web-analytics/internal/geo"
+	"github.com/formation-res/formation-web-analytics/internal/metrics"
 )
 
 func TestBuildBulkPayload(t *testing.T) {
@@ -128,5 +132,106 @@ func TestBackoffBounds(t *testing.T) {
 	delay := Backoff(time.Second, 5*time.Second, 10)
 	if delay < 5*time.Second || delay >= 5*time.Second+1250*time.Millisecond {
 		t.Fatalf("unexpected backoff: %s", delay)
+	}
+}
+
+func TestBuildBulkPayloadKeepsStableDocumentID(t *testing.T) {
+	batch := []events.Event{{
+		Type:       "page_view",
+		SiteID:     "site",
+		Timestamp:  time.Unix(0, 0).UTC().Format(time.RFC3339Nano),
+		ReceivedAt: time.Unix(0, 0).UTC(),
+	}}
+	first, err := BuildBulkPayload("web-analytics", batch)
+	if err != nil {
+		t.Fatalf("failed to build first payload: %v", err)
+	}
+	if batch[0].DocumentID == "" {
+		t.Fatal("expected document id to be assigned")
+	}
+	second, err := BuildBulkPayload("web-analytics", batch)
+	if err != nil {
+		t.Fatalf("failed to build retry payload: %v", err)
+	}
+	if string(first) != string(second) {
+		t.Fatal("expected retries to preserve the same bulk payload and document id")
+	}
+}
+
+func TestSendReturnsOnlyRetryableItems(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errors":true,"items":[{"create":{"status":201}},{"create":{"status":429}},{"create":{"status":400}}]}`))
+	}))
+	defer server.Close()
+
+	client := New(config.Config{
+		ElasticsearchURL:    server.URL,
+		ElasticsearchAPIKey: "test",
+		DataStream:          "web-analytics",
+	}, metrics.New())
+	batch := []events.Event{
+		{DocumentID: "one", Type: "page_view", SiteID: "site"},
+		{DocumentID: "two", Type: "click", SiteID: "site"},
+		{DocumentID: "three", Type: "invalid", SiteID: "site"},
+	}
+	result, err := client.Send(t.Context(), batch)
+	if err != nil {
+		t.Fatalf("expected item failures to be reported in the result: %v", err)
+	}
+	if result.Indexed != 1 || result.Failed != 1 {
+		t.Fatalf("unexpected result counts: %#v", result)
+	}
+	if len(result.Retry) != 1 || result.Retry[0].DocumentID != "two" {
+		t.Fatalf("expected only the 429 item to be retried: %#v", result.Retry)
+	}
+}
+
+func TestSendTreatsStableIDConflictAsIndexed(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errors":true,"items":[{"create":{"status":409}}]}`))
+	}))
+	defer server.Close()
+
+	client := New(config.Config{
+		ElasticsearchURL:    server.URL,
+		ElasticsearchAPIKey: "test",
+		DataStream:          "web-analytics",
+	}, metrics.New())
+	result, err := client.Send(t.Context(), []events.Event{{DocumentID: "stable", Type: "page_view", SiteID: "site"}})
+	if err != nil {
+		t.Fatalf("expected idempotent conflict to succeed: %v", err)
+	}
+	if result.Indexed != 1 || result.Failed != 0 || len(result.Retry) != 0 {
+		t.Fatalf("unexpected conflict result: %#v", result)
+	}
+}
+
+func TestSendRetriesAmbiguousResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errors":`))
+	}))
+	defer server.Close()
+
+	client := New(config.Config{
+		ElasticsearchURL:    server.URL,
+		ElasticsearchAPIKey: "test",
+		DataStream:          "web-analytics",
+	}, metrics.New())
+	batch := []events.Event{{DocumentID: "stable", Type: "page_view", SiteID: "site"}}
+	result, err := client.Send(t.Context(), batch)
+	if err == nil {
+		t.Fatal("expected malformed response to fail")
+	}
+	if len(result.Retry) != 1 || result.Retry[0].DocumentID != "stable" {
+		t.Fatalf("expected ambiguous response to retry the original event: %#v", result.Retry)
+	}
+}
+
+func TestBackoffHandlesTinyAndReversedBounds(t *testing.T) {
+	if got := Backoff(time.Nanosecond, 0, 1000); got != time.Nanosecond {
+		t.Fatalf("unexpected defensive backoff: %s", got)
 	}
 }

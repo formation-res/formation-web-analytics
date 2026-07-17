@@ -37,6 +37,8 @@ func main() {
 		"max_batch_size", cfg.MaxBatchSize,
 		"max_queue_size", cfg.MaxQueueSize,
 		"drop_policy", cfg.DropPolicy,
+		"rate_limit_per_minute", cfg.RateLimitPerMinute,
+		"rate_limit_max_clients", cfg.RateLimitMaxClients,
 		"capture_client_ip", cfg.CaptureClientIP,
 		"trust_proxy_headers", cfg.TrustProxyHeaders,
 		"read_timeout", cfg.ReadTimeout,
@@ -59,7 +61,13 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go b.Run(ctx)
+	geoWatchDone := make(chan struct{})
+	go func() {
+		defer close(geoWatchDone)
+		watchGeoIP(ctx, geoResolver, logger)
+	}()
+	batchCtx, stopBatcher := context.WithCancel(context.Background())
+	go b.Run(batchCtx)
 
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -84,13 +92,29 @@ func main() {
 		}
 	}
 
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		_ = httpServer.Shutdown(shutdownCtx)
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			logger.Error("collector server shutdown failed", "error", err)
+		}
 		if metricsServer != nil {
-			_ = metricsServer.Shutdown(shutdownCtx)
+			if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+				logger.Error("metrics server shutdown failed", "error", err)
+			}
+		}
+
+		stopBatcher()
+		select {
+		case <-b.Done():
+			if err := b.Drain(shutdownCtx); err != nil {
+				logger.Error("queued event drain failed", "error", err, "queue_depth", q.Len())
+			}
+		case <-shutdownCtx.Done():
+			logger.Error("timed out stopping batcher", "error", shutdownCtx.Err(), "queue_depth", q.Len())
 		}
 	}()
 
@@ -103,10 +127,42 @@ func main() {
 		}()
 	}
 
-	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		logger.Error("server failed", "error", err)
+	serveErr := httpServer.ListenAndServe()
+	stop()
+	if serveErr != nil && serveErr != http.ErrServerClosed {
+		logger.Error("server failed", "error", serveErr)
+	}
+	<-shutdownDone
+	<-geoWatchDone
+	if serveErr != nil && serveErr != http.ErrServerClosed {
 		os.Exit(1)
 	}
+}
+
+func watchGeoIP(ctx context.Context, resolver geo.Resolver, logger *slog.Logger) {
+	for {
+		timer := time.NewTimer(durationUntilNextGeoIPReload(time.Now()))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+			reloaded, err := resolver.ReloadIfChanged()
+			if err != nil {
+				logger.Warn("failed to reload geoip database", "error", err)
+				continue
+			}
+			if reloaded {
+				logger.Info("reloaded geoip database")
+			}
+		}
+	}
+}
+
+func durationUntilNextGeoIPReload(now time.Time) time.Duration {
+	now = now.UTC()
+	nextMidnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+	return nextMidnight.Sub(now)
 }
 
 func parseLevel(raw string) slog.Level {

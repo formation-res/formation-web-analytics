@@ -24,6 +24,7 @@ import (
 
 type noopSender struct{}
 type stubGeoResolver struct{}
+type countingGeoResolver struct{ lookups int }
 
 func (noopSender) Send(context.Context, []events.Event) (elastic.BulkResult, error) {
 	return elastic.BulkResult{}, nil
@@ -47,6 +48,17 @@ func (stubGeoResolver) Lookup(ip string) (geo.Result, bool) {
 }
 
 func (stubGeoResolver) Close() error { return nil }
+
+func (stubGeoResolver) ReloadIfChanged() (bool, error) { return false, nil }
+
+func (r *countingGeoResolver) Lookup(string) (geo.Result, bool) {
+	r.lookups++
+	return geo.Result{}, false
+}
+
+func (*countingGeoResolver) Close() error { return nil }
+
+func (*countingGeoResolver) ReloadIfChanged() (bool, error) { return false, nil }
 
 func testConfig() config.Config {
 	return config.Config{
@@ -146,6 +158,31 @@ func TestRejectsTooManyEvents(t *testing.T) {
 
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("expected 413, got %d", rec.Code)
+	}
+}
+
+func TestBatchComputesGeoMetadataOncePerRequest(t *testing.T) {
+	cfg := testConfig()
+	cfg.MaxPayloadBytes = 4096
+	registry := metrics.New()
+	q := queue.New(10)
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	b := batcher.New(config.Config{FlushInterval: time.Second, MaxBatchSize: 10}, q, noopSender{}, registry, logger)
+	resolver := &countingGeoResolver{}
+	server := New(cfg, q, b, noopSender{}, resolver, registry, logger)
+
+	req := httptest.NewRequest(http.MethodPost, "/batch", bytes.NewBufferString(`{"events":[{"type":"page_view","site_id":"site","url":"https://example.com"},{"type":"click","site_id":"site","url":"https://example.com"}]}`))
+	setBrowserHeaders(req)
+	req.Header.Set("Origin", "https://example.com")
+	req.Host = "example.com"
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", rec.Code)
+	}
+	if resolver.lookups != 1 {
+		t.Fatalf("expected one GeoIP lookup for the request, got %d", resolver.lookups)
 	}
 }
 

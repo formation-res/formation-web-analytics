@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -30,9 +31,9 @@ type Client struct {
 }
 
 type BulkResult struct {
-	Indexed   int
-	Failed    int
-	Retryable bool
+	Indexed int
+	Failed  int
+	Retry   []events.Event
 }
 
 type bulkResponse struct {
@@ -99,11 +100,11 @@ func (c *Client) Send(ctx context.Context, batch []events.Event) (BulkResult, er
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return BulkResult{Retryable: true}, err
+		return BulkResult{Retry: batch}, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusGatewayTimeout {
-		return BulkResult{Retryable: true}, fmt.Errorf("bulk request returned %d", resp.StatusCode)
+	if isRetryableStatus(resp.StatusCode) {
+		return BulkResult{Retry: batch}, fmt.Errorf("bulk request returned %d", resp.StatusCode)
 	}
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -111,23 +112,30 @@ func (c *Client) Send(ctx context.Context, batch []events.Event) (BulkResult, er
 	}
 	var parsed bulkResponse
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return BulkResult{}, err
+		return BulkResult{Retry: batch}, err
 	}
 	result := BulkResult{}
 	if !parsed.Errors {
 		result.Indexed = len(batch)
 		return result, nil
 	}
-	for _, item := range parsed.Items {
+	if len(parsed.Items) != len(batch) {
+		return BulkResult{Retry: batch}, fmt.Errorf("bulk response returned %d items for %d events", len(parsed.Items), len(batch))
+	}
+	for i, item := range parsed.Items {
 		status := item.Create.Status
-		if status >= 200 && status < 300 {
+		if status == 0 {
+			return BulkResult{Retry: batch}, errors.New("bulk response item omitted create status")
+		}
+		if status >= 200 && status < 300 || status == http.StatusConflict {
 			result.Indexed++
 			continue
 		}
-		result.Failed++
-		if status == http.StatusTooManyRequests || status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout {
-			result.Retryable = true
+		if isRetryableStatus(status) {
+			result.Retry = append(result.Retry, batch[i])
+			continue
 		}
+		result.Failed++
 	}
 	return result, nil
 }
@@ -135,10 +143,15 @@ func (c *Client) Send(ctx context.Context, batch []events.Event) (BulkResult, er
 func BuildBulkPayload(dataStream string, batch []events.Event) ([]byte, error) {
 	var b strings.Builder
 	encoder := json.NewEncoder(&b)
-	for _, event := range batch {
+	for i := range batch {
+		if err := batch[i].EnsureDocumentID(); err != nil {
+			return nil, err
+		}
+		event := batch[i]
 		action := map[string]any{
 			"create": map[string]string{
 				"_index": dataStream,
+				"_id":    event.DocumentID,
 			},
 		}
 		if err := encoder.Encode(action); err != nil {
@@ -210,6 +223,10 @@ func BuildBulkPayload(dataStream string, batch []events.Event) ([]byte, error) {
 		}
 	}
 	return []byte(b.String()), nil
+}
+
+func isRetryableStatus(status int) bool {
+	return status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= 500
 }
 
 func promotePayloadFields(document map[string]any, payload map[string]any) {
@@ -293,14 +310,28 @@ func geoPointDocument(event events.Event) (map[string]float64, bool) {
 }
 
 func Backoff(minimum, maximum time.Duration, attempt int) time.Duration {
+	if minimum <= 0 {
+		minimum = time.Nanosecond
+	}
+	if maximum < minimum {
+		maximum = minimum
+	}
 	if attempt < 0 {
 		attempt = 0
 	}
-	backoff := minimum << attempt
-	if backoff > maximum {
-		backoff = maximum
+	backoff := minimum
+	for range attempt {
+		if backoff >= maximum || backoff > maximum/2 {
+			backoff = maximum
+			break
+		}
+		backoff *= 2
 	}
-	jitter := time.Duration(rand.Int63n(int64(backoff / 4)))
+	jitterLimit := backoff / 4
+	if jitterLimit <= 0 {
+		return backoff
+	}
+	jitter := time.Duration(rand.Int63n(int64(jitterLimit)))
 	return backoff + jitter
 }
 

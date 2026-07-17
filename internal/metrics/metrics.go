@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -50,7 +49,6 @@ type Registry struct {
 	bulkFailed          atomic.Uint64
 	queueFull           atomic.Uint64
 	queuedCurrent       atomic.Int64
-	mutex               sync.Mutex
 	batchSizeHistogram  histogram
 	flushLatencySeconds histogram
 }

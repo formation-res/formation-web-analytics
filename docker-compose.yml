@@ -28,7 +28,8 @@ services:
     volumes:
       - geoip_db:/data:ro
       - ./scripts/wait-for-geoip.sh:/usr/local/bin/wait-for-geoip.sh:ro
-    command: ["/bin/sh", "-c", "chmod +x /usr/local/bin/wait-for-geoip.sh && /usr/local/bin/wait-for-geoip.sh && /usr/local/bin/collector"]
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["/bin/sh /usr/local/bin/wait-for-geoip.sh && exec /usr/local/bin/collector"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
       interval: 15s
@@ -57,7 +58,8 @@ services:
     ports:
       - "80:80"
       - "443:443"
-    command: ["/bin/sh", "-c", "chmod +x /usr/local/bin/generate-caddyfile.sh && /usr/local/bin/generate-caddyfile.sh > /etc/caddy/Caddyfile && caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"]
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["/bin/sh /usr/local/bin/generate-caddyfile.sh > /etc/caddy/Caddyfile && exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile"]
 
 volumes:
   caddy_data:

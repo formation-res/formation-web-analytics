@@ -41,7 +41,7 @@ func New(cfg config.Config, q *queue.Queue, b *batcher.Batcher, sender elastic.B
 		geo:     geoResolver,
 		metrics: registry,
 		logger:  logger,
-		limiter: newRateLimiter(cfg.RateLimitPerMinute),
+		limiter: newRateLimiter(cfg.RateLimitPerMinute, cfg.RateLimitMaxClients),
 	}
 }
 
@@ -117,15 +117,17 @@ func (s *Server) handleCollect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now()
+	requestMetadata := events.NewRequestMetadata(r, s.cfg)
+	if !events.AllowedDomain(s.cfg, requestMetadata.Domain()) {
+		s.logger.Info("domain rejected", "domain", requestMetadata.Domain(), "host", r.Host)
+		s.metrics.IncRejected(len(eventBatch))
+		s.respondError(w, http.StatusForbidden, "domain_not_allowed")
+		return
+	}
+	geoResult, hasGeoResult := s.geo.Lookup(requestMetadata.ClientIP())
 	enriched := make([]events.Event, 0, len(eventBatch))
 	for i := range eventBatch {
-		domain, resolvedClientIP := events.Enrich(r, s.cfg, &eventBatch[i], now)
-		if !events.AllowedDomain(s.cfg, domain) {
-			s.logger.Info("domain rejected", "domain", domain, "host", r.Host)
-			s.metrics.IncRejected(1)
-			s.respondError(w, http.StatusForbidden, "domain_not_allowed")
-			return
-		}
+		requestMetadata.Enrich(s.cfg, &eventBatch[i], now)
 		if suspect {
 			eventBatch[i].IsSuspect = true
 			eventBatch[i].TrafficQuality = "suspect"
@@ -152,7 +154,7 @@ func (s *Server) handleCollect(w http.ResponseWriter, r *http.Request) {
 			s.respondErrorWithDetail(w, http.StatusBadRequest, "invalid_event", err.Error())
 			return
 		}
-		if geoResult, ok := s.geo.Lookup(resolvedClientIP); ok {
+		if hasGeoResult {
 			eventBatch[i].GeoCountryISO = geoResult.CountryISOCode
 			eventBatch[i].GeoCountryName = geoResult.CountryName
 			eventBatch[i].GeoCityName = geoResult.CityName

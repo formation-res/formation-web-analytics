@@ -72,6 +72,7 @@ Relevant variables:
 - `REQUIRE_ORIGIN` default `true`
 - `REQUIRE_URL_HOST_MATCH` default `true`
 - `RATE_LIMIT_PER_MINUTE` default `300`
+- `RATE_LIMIT_MAX_CLIENTS` default `100000`; new client identities are rejected when the in-memory limiter reaches this bound
 - `BLOCKED_USER_AGENTS` default `bot,crawler,spider,curl,wget,python-requests,go-http-client`
 - `SUSPECT_USER_AGENTS` default `headless,playwright,puppeteer,selenium,phantomjs`
 
@@ -203,6 +204,8 @@ This keeps `site_id` stable per property and prevents one allowed origin from wr
 ## Notes
 
 - The collector is intentionally lossy under pressure or prolonged Elasticsearch outages.
+- Graceful shutdown stops HTTP admission and attempts to drain the in-memory queue for up to 10 seconds.
+- The collector checks for a replaced GeoIP database once per day at midnight UTC and reloads it without stopping ingest.
 - CORS is enforced in both Caddy and the backend.
 - `/metrics` is intentionally not exposed through Caddy.
 - Raw IP storage is disabled unless `CAPTURE_CLIENT_IP=true`.
