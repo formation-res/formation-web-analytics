@@ -28,6 +28,6 @@ bootstrap:
 	./scripts/create-data-stream-and-templates.sh
 
 fmt:
-	gofmt -w $$(find cmd internal -name '*.go' -type f)
+	gofmt -w $$(find api cmd internal -name '*.go' -type f)
 
 check: fmt test-backend

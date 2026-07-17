@@ -199,6 +199,24 @@ func TestMetricsIsNotServedOnMainHandler(t *testing.T) {
 	}
 }
 
+func TestServesOpenAPIDocument(t *testing.T) {
+	server := newTestServer(testConfig())
+
+	req := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/vnd.oai.openapi+json;version=3.1" {
+		t.Fatalf("unexpected content type %q", got)
+	}
+	if !json.Valid(rec.Body.Bytes()) {
+		t.Fatal("expected a valid JSON OpenAPI document")
+	}
+}
+
 func TestRejectsEmptyBatch(t *testing.T) {
 	cfg := testConfig()
 	cfg.MaxPayloadBytes = 4096

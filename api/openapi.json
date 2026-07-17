@@ -1,0 +1,417 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Formation Web Analytics Collector API",
+    "version": "0.1.0",
+    "description": "HTTP API for accepting browser analytics events and checking collector health. A 202 response means the request passed admission and validation; persistence to Elasticsearch happens asynchronously.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
+  },
+  "security": [],
+  "servers": [
+    {
+      "url": "/",
+      "description": "Collector serving this document"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Ingestion",
+      "description": "Best-effort analytics event admission"
+    },
+    {
+      "name": "Operations",
+      "description": "Health, readiness, and contract discovery"
+    }
+  ],
+  "paths": {
+    "/openapi.json": {
+      "get": {
+        "tags": ["Operations"],
+        "summary": "Get the OpenAPI document",
+        "operationId": "getOpenAPISpec",
+        "responses": {
+          "200": {
+            "description": "The canonical OpenAPI 3.1 document",
+            "content": {
+              "application/vnd.oai.openapi+json;version=3.1": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/collect": {
+      "post": {
+        "tags": ["Ingestion"],
+        "summary": "Submit one event or a batch",
+        "description": "Validates and admits one event or an events wrapper. Use this endpoint for normal client delivery. Admission is rate limited per client IP. Origin, domain, site-to-origin, URL-host, user-agent, body-size, and event validation depend on deployment configuration.",
+        "operationId": "collectEvents",
+        "parameters": [
+          {"$ref": "#/components/parameters/Origin"},
+          {"$ref": "#/components/parameters/UserAgent"},
+          {"$ref": "#/components/parameters/AcceptLanguage"}
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/EventOrBatch"
+        },
+        "responses": {
+          "202": {"$ref": "#/components/responses/Accepted"},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "413": {"$ref": "#/components/responses/PayloadTooLarge"},
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/QueueFull"}
+        }
+      }
+    },
+    "/batch": {
+      "post": {
+        "tags": ["Ingestion"],
+        "summary": "Submit an event batch",
+        "description": "Alias of /collect intended for batched delivery. The server currently accepts either one event or an events wrapper on both ingestion paths.",
+        "operationId": "collectEventBatch",
+        "parameters": [
+          {"$ref": "#/components/parameters/Origin"},
+          {"$ref": "#/components/parameters/UserAgent"},
+          {"$ref": "#/components/parameters/AcceptLanguage"}
+        ],
+        "requestBody": {
+          "$ref": "#/components/requestBodies/EventOrBatch"
+        },
+        "responses": {
+          "202": {"$ref": "#/components/responses/Accepted"},
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "413": {"$ref": "#/components/responses/PayloadTooLarge"},
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/QueueFull"}
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "tags": ["Operations"],
+        "summary": "Check process health",
+        "description": "Reports whether the HTTP process is running. It does not check Elasticsearch or batcher readiness.",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Collector process is healthy",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Success"},
+                "example": {"ok": true}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": ["Operations"],
+        "summary": "Check ingestion readiness",
+        "description": "Checks batcher readiness. When REQUIRE_ELASTIC_READY=true, it also pings Elasticsearch with a two-second timeout.",
+        "operationId": "getReadiness",
+        "responses": {
+          "200": {
+            "description": "Collector is ready to accept events",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Success"},
+                "example": {"ok": true}
+              }
+            }
+          },
+          "503": {
+            "description": "The batcher or Elasticsearch is not ready",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/Error"},
+                "examples": {
+                  "batcher": {"value": {"ok": false, "error": "batcher_not_ready"}},
+                  "elasticsearch": {"value": {"ok": false, "error": "elasticsearch_not_ready"}}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "Origin": {
+        "name": "Origin",
+        "in": "header",
+        "required": true,
+        "description": "Browser origin. Required by the default configuration and checked against ALLOWED_DOMAINS and, when configured, SITE_ORIGIN_MAP.",
+        "schema": {
+          "type": "string",
+          "format": "uri",
+          "example": "https://www.example.com"
+        }
+      },
+      "UserAgent": {
+        "name": "User-Agent",
+        "in": "header",
+        "required": true,
+        "description": "Used for browser, operating-system, and device enrichment. Empty and configured blocked user agents are rejected.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "AcceptLanguage": {
+        "name": "Accept-Language",
+        "in": "header",
+        "required": false,
+        "description": "Optional browser language preferences used for enrichment.",
+        "schema": {
+          "type": "string",
+          "example": "en-GB,en;q=0.9"
+        }
+      }
+    },
+    "requestBodies": {
+      "EventOrBatch": {
+        "required": true,
+        "description": "One event object or a non-empty events wrapper. The default maximum request size is 1 MiB and the default maximum batch size is 100 events; both are configurable.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "oneOf": [
+                {"$ref": "#/components/schemas/EventRequest"},
+                {"$ref": "#/components/schemas/BatchRequest"}
+              ]
+            },
+            "examples": {
+              "pageView": {
+                "summary": "Single page-view event",
+                "value": {
+                  "type": "page_view",
+                  "site_id": "marketing",
+                  "timestamp": "2026-07-17T09:30:00Z",
+                  "session_id": "session-01",
+                  "anonymous_id": "visitor-01",
+                  "url": "https://www.example.com/pricing",
+                  "path": "/pricing",
+                  "title": "Pricing",
+                  "payload": {"campaign": "summer"}
+                }
+              },
+              "batch": {
+                "summary": "Batch wrapper",
+                "value": {
+                  "events": [
+                    {"type": "page_view", "site_id": "marketing", "path": "/"},
+                    {"type": "signup_started", "site_id": "marketing", "path": "/signup"}
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "EventRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "site_id"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$",
+            "description": "Event name. page_view and identify are client conventions; custom names are allowed."
+          },
+          "site_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$",
+            "description": "Stable identifier for the website or property. A configured SITE_ORIGIN_MAP can bind this value to allowed origins."
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Client event time. Missing or invalid values are replaced with the server receive time and valid values are normalized to UTC."
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Client-generated browsing-session identifier."
+          },
+          "anonymous_id": {
+            "type": "string",
+            "description": "Client-generated visitor identifier."
+          },
+          "user_id": {
+            "type": ["string", "null"],
+            "description": "Optional application user identifier. Avoid direct personal data unless your deployment has a valid purpose and legal basis."
+          },
+          "path": {
+            "type": "string",
+            "description": "Page path. Query and fragment data are removed when SANITIZE_URLS=true."
+          },
+          "url": {
+            "type": "string",
+            "format": "uri-reference",
+            "description": "Page URL. HTTP and HTTPS are supported. Its host must match Origin by default; query, fragment, and userinfo data are removed when SANITIZE_URLS=true."
+          },
+          "referrer": {
+            "type": "string",
+            "format": "uri-reference",
+            "description": "Previous page URL. Query, fragment, and userinfo data are removed when SANITIZE_URLS=true."
+          },
+          "title": {
+            "type": "string",
+            "description": "Page title."
+          },
+          "payload": {
+            "type": "object",
+            "description": "Event-specific JSON data. The default limits are 128 nested entries, depth 4, and 10,240 bytes per string. Limits are configurable.",
+            "additionalProperties": true
+          },
+          "timezone": {
+            "type": "string",
+            "description": "Optional IANA timezone name, for example Europe/Berlin."
+          },
+          "timezone_offset_minutes": {
+            "type": "integer",
+            "minimum": -840,
+            "maximum": 840,
+            "description": "Optional UTC offset in minutes."
+          }
+        }
+      },
+      "BatchRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["events"],
+        "properties": {
+          "events": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "description": "The default maximum is 100. MAX_EVENTS_PER_REQUEST can change this deployment limit.",
+            "items": {"$ref": "#/components/schemas/EventRequest"}
+          }
+        }
+      },
+      "Success": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok"],
+        "properties": {
+          "ok": {"type": "boolean", "const": true}
+        }
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ok", "error"],
+        "properties": {
+          "ok": {"type": "boolean", "const": false},
+          "error": {
+            "type": "string",
+            "enum": [
+              "rate_limited",
+              "origin_required",
+              "user_agent_blocked",
+              "content_type_must_be_application_json",
+              "payload_too_large",
+              "empty_body",
+              "empty_batch",
+              "invalid_json",
+              "too_many_events",
+              "domain_not_allowed",
+              "origin_not_allowed_for_site",
+              "url_host_mismatch",
+              "invalid_event",
+              "queue_full",
+              "batcher_not_ready",
+              "elasticsearch_not_ready"
+            ]
+          },
+          "detail": {
+            "type": "string",
+            "description": "Present for invalid_event responses and contains the validation reason."
+          }
+        }
+      }
+    },
+    "responses": {
+      "Accepted": {
+        "description": "The event or batch passed validation and admission. Elasticsearch persistence is asynchronous. With DROP_POLICY=drop_newest, this response can still be returned when queue pressure drops some or all submitted events.",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Success"},
+            "example": {"ok": true}
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "The body is empty, malformed, an empty batch, or contains an invalid event.",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"},
+            "examples": {
+              "malformed": {"value": {"ok": false, "error": "invalid_json"}},
+              "invalidEvent": {"value": {"ok": false, "error": "invalid_event", "detail": "invalid timezone"}}
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Origin, request domain, site binding, URL host, or user-agent policy rejected the request.",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"},
+            "example": {"ok": false, "error": "domain_not_allowed"}
+          }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "The request exceeds MAX_PAYLOAD_BYTES or contains more than MAX_EVENTS_PER_REQUEST events.",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"},
+            "example": {"ok": false, "error": "payload_too_large"}
+          }
+        }
+      },
+      "UnsupportedMediaType": {
+        "description": "Content-Type is present but is not application/json.",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"},
+            "example": {"ok": false, "error": "content_type_must_be_application_json"}
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "The per-client-IP admission limit was exceeded or the limiter cannot track another client.",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"},
+            "example": {"ok": false, "error": "rate_limited"}
+          }
+        }
+      },
+      "QueueFull": {
+        "description": "The in-memory queue is full and DROP_POLICY=reject.",
+        "content": {
+          "application/json": {
+            "schema": {"$ref": "#/components/schemas/Error"},
+            "example": {"ok": false, "error": "queue_full"}
+          }
+        }
+      }
+    }
+  }
+}

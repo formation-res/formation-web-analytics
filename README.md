@@ -20,6 +20,7 @@ The published container setup is designed around compliant GeoIP distribution. T
 
 The collector exposes:
 
+- `GET /openapi.json`
 - `POST /collect`
 - `POST /batch`
 - `GET /healthz`
@@ -29,6 +30,8 @@ Events are validated, enriched with request metadata, parsed user-agent metadata
 Validation and abuse guard rails include request body limits, JSON-only ingest, bounded batch sizes, field-length limits, and payload depth/entry limits.
 The default in-memory queue size is `10_000` events and the default maximum bulk batch size is `500` events.
 Metrics are disabled by default; when enabled, `GET /metrics` is served on a separate listener configured with `METRICS_LISTEN_ADDR`.
+
+See the [API guide](docs/api.md) for request examples, event fields, admission semantics, error behavior, CORS, health checks, and metrics. The canonical machine-readable contract is [api/openapi.json](api/openapi.json), and each running collector serves the same OpenAPI 3.1 document from `GET /openapi.json`.
 
 ## Local development
 

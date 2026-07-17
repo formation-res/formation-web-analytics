@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	collectorapi "github.com/formation-res/formation-web-analytics/api"
 	"github.com/formation-res/formation-web-analytics/internal/batcher"
 	"github.com/formation-res/formation-web-analytics/internal/config"
 	"github.com/formation-res/formation-web-analytics/internal/elastic"
@@ -47,6 +48,7 @@ func New(cfg config.Config, q *queue.Queue, b *batcher.Batcher, sender elastic.B
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /openapi.json", s.handleOpenAPI)
 	mux.HandleFunc("POST /collect", s.handleCollect)
 	mux.HandleFunc("POST /batch", s.handleCollect)
 	mux.HandleFunc("OPTIONS /collect", s.handleOptions)
@@ -54,6 +56,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /readyz", s.handleReady)
 	return s.withCommonHeaders(mux)
+}
+
+func (s *Server) handleOpenAPI(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/vnd.oai.openapi+json;version=3.1")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(collectorapi.OpenAPI); err != nil {
+		s.logger.Error("failed to write OpenAPI document", "error", err)
+	}
 }
 
 func (s *Server) MetricsHandler() http.Handler {
