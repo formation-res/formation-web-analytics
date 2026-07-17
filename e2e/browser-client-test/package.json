@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@tryformation/formation-web-analytics-client": "^0.1.1",
-    "jsdom": "^26.1.0"
+    "@tryformation/formation-web-analytics-client": "^0.2.1",
+    "jsdom": "^29.1.1"
   }
 }

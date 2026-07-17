@@ -8,8 +8,8 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26'
       - name: Run backend tests
@@ -18,7 +18,7 @@ jobs:
   elasticsearch-bootstrap:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Start Elasticsearch 9
         run: docker compose -f docker-compose.elasticsearch.yml up -d
       - name: Wait for Elasticsearch

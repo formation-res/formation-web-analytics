@@ -42,7 +42,7 @@ func TestBuildBulkPayload(t *testing.T) {
 			"user_agent:headless",
 		},
 		Payload: map[string]any{
-			"utm_source":          "google",
+			"utm_source":         "google",
 			"conversation_id":    "conversation-123",
 			"turn_index":         float64(4),
 			"locale":             "en",

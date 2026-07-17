@@ -7,7 +7,7 @@ COPY internal ./internal
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/collector ./cmd/collector
 
-FROM alpine:3.21
+FROM alpine:3.23
 LABEL org.opencontainers.image.vendor="FORMATION GmbH"
 LABEL org.opencontainers.image.description="Formation Web Analytics Collector"
 LABEL org.opencontainers.image.licenses="MIT"

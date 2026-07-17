@@ -112,9 +112,9 @@ func (r *Registry) render() string {
 func (r *Registry) writeHistogram(b *strings.Builder, name string, h *histogram) {
 	fmt.Fprintf(b, "# TYPE %s histogram\n", name)
 	var running uint64
-	for _, bucket := range h.items {
-		running = bucket.count.Load()
-		fmt.Fprintf(b, "%s_bucket{le=\"%.3f\"} %d\n", name, bucket.upper, running)
+	for i := range h.items {
+		running = h.items[i].count.Load()
+		fmt.Fprintf(b, "%s_bucket{le=\"%.3f\"} %d\n", name, h.items[i].upper, running)
 	}
 	fmt.Fprintf(b, "%s_bucket{le=\"+Inf\"} %d\n", name, h.count.Load())
 	fmt.Fprintf(b, "%s_sum %.3f\n", name, float64(h.sum.Load())/1000)
