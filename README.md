@@ -12,7 +12,7 @@ If you decide to use this today, assess the operational and compliance risks car
 
 The main reason to adopt this approach is control. This project is intended for self-hosting web analytics in the EU in a way that can reduce third-country transfer exposure and support a GDPR-aligned deployment when configured and operated correctly. Instead of sending visitor data to foreign advertising or tracking companies, you keep collection, storage, access, and governance under your own control. That reduces third-party exposure, simplifies data residency choices, and lets you decide exactly what is collected, retained, and shared.
 
-There is currently no user interface yet. [formationxyz.com](https://formationxyz.com) is waiting to announce some agentic solutions around this, so stay tuned and check the site for updates and more information.
+There is no user interface yet. Deployers currently use Elasticsearch tooling or their own reporting layer to inspect the collected data.
 
 The published container setup is designed around compliant GeoIP distribution. The Docker image does not need to ship a MaxMind database. Instead, the Compose stack expects you to provide your own MaxMind account ID and license key, downloads `GeoLite2-City.mmdb` into a mounted volume at runtime, and periodically refreshes that database in place.
 
@@ -70,11 +70,11 @@ This is also the recommended distribution model for public container releases: p
 
 Attribution: This product includes GeoLite Data created by MaxMind, available from [maxmind.com](https://www.maxmind.com).
 
-Relevant variables:
+Relevant deployment variables:
 
-- `ALLOWED_DOMAINS` should list your collector hostnames
+- `ALLOWED_DOMAINS` must include the collector request host and every browser `Origin` host that may send events
 - `SITE_ORIGIN_MAP` optional per-site origin allowlist in the form `marketing:tryformation.com|www.tryformation.com;docs:docs.tryformation.com`
-- `CADDY_DOMAINS` default example `analytics.tryformation.com`
+- `CADDY_DOMAINS` lists the public collector hostnames served by Caddy; default example `analytics.tryformation.com`
 - `CADDY_RATE_LIMIT_EVENTS` default `120`
 - `CADDY_RATE_LIMIT_WINDOW` default `1m`
 - `MAXMIND_ACCOUNT_ID`
@@ -109,32 +109,38 @@ Required GitHub repository secrets:
 - `DOCKERHUB_USERNAME`: the Docker Hub user or service account name
 - `DOCKERHUB_PASSWORD`: the Docker Hub password or access token for that account
 
-The Docker Hub account behind that token must have permission to push to the `tryformation` organization repository.
+The Docker Hub account behind that token must have permission to push to the `tryformation` organization repository. Branch CI runs the Go tests, checks the Elasticsearch bootstrap, builds the server and Caddy images, and validates the generated Caddy configuration. Build the versioned server image locally as a final check before creating a tag.
 
 Example release flow:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+VERSION=vX.Y.Z
+git status --short --branch
+make test-backend
+docker build --build-arg "VERSION=$VERSION" --file server/Dockerfile .
+git tag --annotate "$VERSION" --message "$VERSION"
+git push origin "$VERSION"
 ```
 
-That will publish `tryformation/formation-web-analytics-server:v0.1.0`.
+The tag push embeds `$VERSION` in the collector binary and publishes `tryformation/formation-web-analytics-server:$VERSION`. Watch the `publish-server-image` workflow through completion and verify that Docker Hub exposes the new tag before announcing the release.
+
+The image workflow does not create a GitHub Release. Create one separately after the image has published if the version should appear on the repository's Releases page:
+
+```bash
+gh release create "$VERSION" --verify-tag --generate-notes
+```
 
 The published image does not bundle a MaxMind database. You should keep `geoipupdate` as a separate runtime sidecar or companion job that downloads `GeoLite2-City.mmdb` with your own MaxMind credentials and mounts it into the collector container.
 
 ## Pulling the published image
 
-Pull a tagged release from Docker Hub with:
-
-```bash
-docker pull tryformation/formation-web-analytics-server:v0.1.0
-```
-
-Or pull the most recent release tag you want to deploy:
+Pull a tagged release from Docker Hub. Replace `<tag>` with an explicit version such as `v0.2.1`:
 
 ```bash
 docker pull tryformation/formation-web-analytics-server:<tag>
 ```
+
+The workflow also updates the floating `latest` tag. Pin an explicit version in production so a later release cannot change the deployed image unexpectedly.
 
 The collector expects a GeoIP database file to be mounted at `/data/GeoLite2-City.mmdb` by default. A minimal direct run looks like this:
 
@@ -142,7 +148,7 @@ The collector expects a GeoIP database file to be mounted at `/data/GeoLite2-Cit
 docker run --rm -p 8080:8080 \
   --env-file .env \
   -v /path/to/geoip:/data:ro \
-  tryformation/formation-web-analytics-server:v0.1.0
+  tryformation/formation-web-analytics-server:<tag>
 ```
 
 For production deployments, prefer running the collector together with MaxMind's `ghcr.io/maxmind/geoipupdate:latest` container, as shown in `docker-compose.yml`, so the database is fetched and refreshed separately from the collector image.
@@ -221,7 +227,7 @@ This keeps `site_id` stable per property and prevents one allowed origin from wr
 - The collector is intentionally lossy under pressure or prolonged Elasticsearch outages.
 - Graceful shutdown stops HTTP admission and attempts to drain the in-memory queue for up to 10 seconds.
 - The collector checks for a replaced GeoIP database once per day at midnight UTC and reloads it without stopping ingest.
-- CORS is enforced in both Caddy and the backend.
+- The backend enforces CORS. Caddy proxies preflight and ingest requests to it.
 - `/metrics` is intentionally not exposed through Caddy.
 - Raw IP storage is disabled unless `CAPTURE_CLIENT_IP=true`.
 - GeoIP enrichment still works without storing raw IP metadata because the lookup happens before indexing.

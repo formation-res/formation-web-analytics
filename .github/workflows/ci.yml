@@ -15,6 +15,27 @@ jobs:
       - name: Run backend tests
         run: go test -count=1 -timeout 10s ./...
 
+  release-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build server release image
+        run: docker build --build-arg "VERSION=ci-${GITHUB_SHA}" --file server/Dockerfile .
+      - name: Build Caddy image
+        run: docker build --tag formation-web-analytics-caddy:ci --file server/Caddy.Dockerfile .
+      - name: Validate Caddy configuration
+        run: |
+          docker run --rm \
+            --env CADDY_DOMAINS=analytics.example.com,analytics-alt.example.com \
+            --env CADDY_RATE_LIMIT_EVENTS=120 \
+            --env CADDY_RATE_LIMIT_WINDOW=1m \
+            --env UPSTREAM=collector:8080 \
+            --volume "$PWD/server/Caddyfile.template:/etc/caddy/Caddyfile.template:ro" \
+            --volume "$PWD/scripts/generate-caddyfile.sh:/usr/local/bin/generate-caddyfile.sh:ro" \
+            --entrypoint /bin/sh \
+            formation-web-analytics-caddy:ci \
+            -c '/usr/local/bin/generate-caddyfile.sh >/tmp/Caddyfile && caddy validate --config /tmp/Caddyfile --adapter caddyfile && if grep -q "respond .* 204" /tmp/Caddyfile; then exit 1; fi'
+
   elasticsearch-bootstrap:
     runs-on: ubuntu-latest
     steps:

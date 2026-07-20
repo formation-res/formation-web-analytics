@@ -12,8 +12,10 @@ Every change should be checked against this list before merge:
 - Do asynchronous tests have explicit time bounds?
 - Are validation and abuse cases covered by tests?
 - Can the stack and local dependencies be started with the documented commands?
+- For a release, does `server/Dockerfile` build from a clean checkout?
+- When the API contract changes, do `docs/api.md` and `api/openapi.json` match the implemented routes and responses?
 
-## Current Reassessment
+## March 11, 2026 Reassessment
 
 As of March 11, 2026:
 

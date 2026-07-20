@@ -10,7 +10,6 @@ if [ -z "$domains" ]; then
 fi
 
 sites=""
-origin_hosts=""
 first=1
 OLD_IFS=$IFS
 IFS=','
@@ -21,11 +20,9 @@ for raw_domain in $domains; do
   fi
   if [ $first -eq 1 ]; then
     sites="$domain"
-    origin_hosts=$(printf "%s" "$domain" | sed 's/\./\\./g')
     first=0
   else
     sites="$sites, $domain"
-    origin_hosts="$origin_hosts|$(printf "%s" "$domain" | sed 's/\./\\./g')"
   fi
 done
 IFS=$OLD_IFS
@@ -35,5 +32,5 @@ if [ -z "$sites" ]; then
   exit 1
 fi
 
-SITES="$sites" ORIGIN_HOSTS="$origin_hosts" UPSTREAM="$upstream" \
-  exec envsubst < /etc/caddy/Caddyfile.template
+SITES="$sites" UPSTREAM="$upstream" \
+  exec envsubst '$SITES $UPSTREAM' < /etc/caddy/Caddyfile.template

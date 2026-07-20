@@ -1,11 +1,13 @@
 FROM golang:1.26-alpine AS build
 WORKDIR /src
+ARG VERSION=dev
 
 COPY go.mod go.sum ./
+COPY api/spec.go api/openapi.json ./api/
 COPY cmd ./cmd
 COPY internal ./internal
 
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/collector ./cmd/collector
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.version=${VERSION}" -o /out/collector ./cmd/collector
 
 FROM alpine:3.23
 LABEL org.opencontainers.image.vendor="FORMATION GmbH"

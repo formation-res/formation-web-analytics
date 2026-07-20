@@ -35,6 +35,8 @@ jobs:
         with:
           context: .
           file: ./server/Dockerfile
+          build-args: |
+            VERSION=${{ github.ref_name }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

@@ -4,9 +4,11 @@
 
 - Run `make test-backend` before pushing. The backend suite is always run with `-timeout 10s`; tests that need longer should be fixed, not left open-ended.
 - Run `make test-elasticsearch` when changing Elasticsearch mappings, ILM, templates, or bootstrap logic.
+- Before creating a release tag, build `server/Dockerfile` with the intended version, for example `docker build --build-arg VERSION=vX.Y.Z --file server/Dockerfile .`.
+- Run `make smoke-test-browser-client` when changing the image build, collector API, or browser-client integration.
 - Prefer deterministic tests over `time.Sleep`. Use channels, contexts, or explicit deadlines.
 - Keep the stack reproducible. Local Elasticsearch for development is [docker-compose.elasticsearch.yml](docker-compose.elasticsearch.yml); production stack is [docker-compose.yml](docker-compose.yml).
-- If behavior changes, update [README.md](README.md) or [docs/definition-of-done.md](docs/definition-of-done.md) in the same change.
+- If behavior changes, update [README.md](README.md), [docs/api.md](docs/api.md), the OpenAPI contract, or [docs/definition-of-done.md](docs/definition-of-done.md) as appropriate.
 
 ## Best Practices For Tests
 
