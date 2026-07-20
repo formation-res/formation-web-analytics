@@ -89,12 +89,7 @@ func (s *Server) handleCollect(w http.ResponseWriter, r *http.Request) {
 		s.respondError(w, http.StatusForbidden, "origin_required")
 		return
 	}
-	blocked, suspect, suspicionReasons := classifyUserAgent(r.Header.Get("User-Agent"), s.cfg.BlockedUserAgents, s.cfg.SuspectUserAgents)
-	if blocked {
-		s.metrics.IncRejected(1)
-		s.respondError(w, http.StatusForbidden, "user_agent_blocked")
-		return
-	}
+	suspect, suspicionReasons := classifyUserAgent(r.Header.Get("User-Agent"), s.cfg.BlockedUserAgents, s.cfg.SuspectUserAgents)
 	if !isJSONRequest(r) {
 		s.metrics.IncRejected(1)
 		s.respondError(w, http.StatusUnsupportedMediaType, "content_type_must_be_application_json")
@@ -209,23 +204,27 @@ func isJSONRequest(r *http.Request) bool {
 	return mediaType == "application/json"
 }
 
-func classifyUserAgent(userAgent string, blocked, suspect []string) (bool, bool, []string) {
+func classifyUserAgent(userAgent string, flagged, suspect []string) (bool, []string) {
 	userAgent = strings.TrimSpace(strings.ToLower(userAgent))
 	if userAgent == "" {
-		return true, false, nil
-	}
-	for _, needle := range blocked {
-		if strings.Contains(userAgent, needle) {
-			return true, false, nil
-		}
+		return true, []string{"user_agent:missing"}
 	}
 	var reasons []string
-	for _, needle := range suspect {
-		if strings.Contains(userAgent, needle) {
-			reasons = append(reasons, "user_agent:"+needle)
+	seen := make(map[string]struct{}, len(flagged)+len(suspect))
+	for _, candidates := range [][]string{flagged, suspect} {
+		for _, needle := range candidates {
+			if !strings.Contains(userAgent, needle) {
+				continue
+			}
+			reason := "user_agent:" + needle
+			if _, exists := seen[reason]; exists {
+				continue
+			}
+			seen[reason] = struct{}{}
+			reasons = append(reasons, reason)
 		}
 	}
-	return false, len(reasons) > 0, reasons
+	return len(reasons) > 0, reasons
 }
 
 func originAllowedForSite(cfg config.Config, siteID, origin string) bool {

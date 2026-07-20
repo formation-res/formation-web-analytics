@@ -57,7 +57,7 @@ func TestLoadParsesDomainsAndDefaults(t *testing.T) {
 		t.Fatalf("expected default rate-limit client cap, got %d", cfg.RateLimitMaxClients)
 	}
 	if len(cfg.BlockedUserAgents) == 0 {
-		t.Fatal("expected default blocked user agents")
+		t.Fatal("expected default flagged user agents")
 	}
 	if len(cfg.SuspectUserAgents) == 0 {
 		t.Fatal("expected default suspect user agents")

@@ -16,7 +16,7 @@ Origin: https://www.example.com
 User-Agent: your-client-user-agent
 ```
 
-The default configuration requires `Origin`. It also rejects empty and configured automated user agents. Browser requests normally add both headers. Custom clients need to send them explicitly and must be allowed by the deployment configuration.
+The default configuration requires `Origin`. Empty and configured automated user agents are accepted but marked as suspect. Browser requests normally add both headers. Custom clients should send a stable, descriptive `User-Agent` and an `Origin` allowed by the deployment configuration.
 
 ## Submit an event
 
@@ -88,7 +88,7 @@ Requests can also be rejected by:
 - the request-domain allowlist in `ALLOWED_DOMAINS`
 - the per-site origin binding in `SITE_ORIGIN_MAP`
 - the default URL-host-to-Origin check
-- the required-Origin and user-agent policies
+- the required-Origin policy
 - the per-client-IP rate limit
 - JSON, request-size, batch-size, and event validation
 

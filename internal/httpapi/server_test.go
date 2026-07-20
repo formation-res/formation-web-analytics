@@ -71,7 +71,7 @@ func testConfig() config.Config {
 		MaxPayloadEntries:   16,
 		MaxPayloadDepth:     4,
 		RateLimitPerMinute:  300,
-		BlockedUserAgents:   []string{"bot", "crawler", "spider", "curl", "wget", "python-requests", "go-http-client"},
+		BlockedUserAgents:   []string{"bot", "crawler", "spider", "curl", "wget", "python-requests", "python-urllib", "go-http-client"},
 		SuspectUserAgents:   []string{"headless", "playwright", "puppeteer", "selenium", "phantomjs"},
 		RequireOrigin:       true,
 		RequireURLHostMatch: true,
@@ -250,20 +250,53 @@ func TestRejectsMissingOrigin(t *testing.T) {
 	}
 }
 
-func TestRejectsBlockedUserAgent(t *testing.T) {
+func TestAcceptsFlaggedUserAgentAndMarksQualitySuspect(t *testing.T) {
 	server := newTestServer(testConfig())
 
 	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site","url":"https://example.com"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "https://example.com")
-	req.Header.Set("User-Agent", "curl/8.7.1")
+	req.Header.Set("User-Agent", "Python-urllib/3.13")
 	req.Host = "example.com"
 	rec := httptest.NewRecorder()
 
 	server.Handler().ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", rec.Code)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", rec.Code)
+	}
+	eventBatch := server.queue.Drain(1)
+	if len(eventBatch) != 1 {
+		t.Fatalf("expected one queued event, got %d", len(eventBatch))
+	}
+	if !eventBatch[0].IsSuspect || eventBatch[0].TrafficQuality != "suspect" {
+		t.Fatalf("expected suspect traffic quality, got %#v", eventBatch[0])
+	}
+	if len(eventBatch[0].SuspicionReasons) != 1 || eventBatch[0].SuspicionReasons[0] != "user_agent:python-urllib" {
+		t.Fatalf("unexpected suspicion reasons: %#v", eventBatch[0].SuspicionReasons)
+	}
+}
+
+func TestAcceptsMissingUserAgentAndMarksQualitySuspect(t *testing.T) {
+	server := newTestServer(testConfig())
+
+	req := httptest.NewRequest(http.MethodPost, "/collect", bytes.NewBufferString(`{"type":"page_view","site_id":"site","url":"https://example.com"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://example.com")
+	req.Host = "example.com"
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", rec.Code)
+	}
+	eventBatch := server.queue.Drain(1)
+	if len(eventBatch) != 1 || !eventBatch[0].IsSuspect {
+		t.Fatalf("expected one suspect event, got %#v", eventBatch)
+	}
+	if len(eventBatch[0].SuspicionReasons) != 1 || eventBatch[0].SuspicionReasons[0] != "user_agent:missing" {
+		t.Fatalf("unexpected suspicion reasons: %#v", eventBatch[0].SuspicionReasons)
 	}
 }
 

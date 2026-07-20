@@ -174,7 +174,7 @@ func Load(version string) (Config, error) {
 	if cfg.RateLimitMaxClients, err = intValue("RATE_LIMIT_MAX_CLIENTS", 100000); err != nil {
 		return Config{}, err
 	}
-	cfg.BlockedUserAgents = parseList(envOrDefault("BLOCKED_USER_AGENTS", "bot,crawler,spider,curl,wget,python-requests,go-http-client"))
+	cfg.BlockedUserAgents = parseList(envOrDefault("BLOCKED_USER_AGENTS", "bot,crawler,spider,curl,wget,python-requests,python-urllib,go-http-client"))
 	cfg.SuspectUserAgents = parseList(envOrDefault("SUSPECT_USER_AGENTS", "headless,playwright,puppeteer,selenium,phantomjs"))
 
 	cfg.DropPolicy = DropPolicy(envOrDefault("DROP_POLICY", string(DropPolicyReject)))

@@ -163,8 +163,8 @@
       "UserAgent": {
         "name": "User-Agent",
         "in": "header",
-        "required": true,
-        "description": "Used for browser, operating-system, and device enrichment. Empty and configured blocked user agents are rejected.",
+        "required": false,
+        "description": "Used for browser, operating-system, and device enrichment. Empty and configured automated user agents are accepted but marked as suspect.",
         "schema": {
           "type": "string"
         }
@@ -322,7 +322,6 @@
             "enum": [
               "rate_limited",
               "origin_required",
-              "user_agent_blocked",
               "content_type_must_be_application_json",
               "payload_too_large",
               "empty_body",
@@ -368,7 +367,7 @@
         }
       },
       "Forbidden": {
-        "description": "Origin, request domain, site binding, URL host, or user-agent policy rejected the request.",
+        "description": "Origin, request domain, site binding, or URL host policy rejected the request.",
         "content": {
           "application/json": {
             "schema": {"$ref": "#/components/schemas/Error"},

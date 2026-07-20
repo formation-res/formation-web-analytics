@@ -47,6 +47,19 @@ See the [API guide](docs/api.md) for request examples, event fields, admission s
 9. Run `make smoke-test` for a local collector-to-Elasticsearch verification.
 10. Run `make smoke-test-browser-client` for an end-to-end check using the Formation Web Analytics Client in a Docker-managed test container.
 
+## Sending analytics requests
+
+Use the Formation Web Analytics Client for browser applications when possible. For direct HTTP and server-side integrations:
+
+- Send JSON with `Content-Type: application/json`.
+- Use the configured `site_id` and send an `Origin` allowed for that site. Browsers set `Origin` automatically. Server-side clients must set it explicitly.
+- Set a stable, descriptive `User-Agent`, such as `Formation-Web-Analytics-Python/0.2`. Avoid runtime defaults such as `Python-urllib/3.x`; CDNs and proxies may reject them before the request reaches the collector.
+- Keep the event `url` host equal to the `Origin` host when `REQUIRE_URL_HOST_MATCH=true`.
+- Keep batches within `MAX_EVENTS_PER_REQUEST`. Retry `429` and `503` responses with backoff. Fix the request or deployment configuration before retrying `400` and `403` responses.
+- If a CDN or web application firewall fronts the collector, exempt `/collect` and `/batch` from browser-integrity checks designed for HTML pages. Keep rate limits, request-size limits, and payload validation enabled.
+
+The collector accepts requests with missing or configured automated user agents. It records those events with `traffic_quality=suspect` and adds a `user_agent:*` reason to `suspicion_reasons`.
+
 ## GeoIP updates
 
 Docker Compose now includes a `geoipupdate` service based on MaxMind's official container image. It downloads `GeoLite2-City.mmdb` into a shared Docker volume, and the collector waits for that database before starting.
@@ -76,8 +89,8 @@ Relevant variables:
 - `REQUIRE_URL_HOST_MATCH` default `true`
 - `RATE_LIMIT_PER_MINUTE` default `300`
 - `RATE_LIMIT_MAX_CLIENTS` default `100000`; new client identities are rejected when the in-memory limiter reaches this bound
-- `BLOCKED_USER_AGENTS` default `bot,crawler,spider,curl,wget,python-requests,go-http-client`
-- `SUSPECT_USER_AGENTS` default `headless,playwright,puppeteer,selenium,phantomjs`
+- `BLOCKED_USER_AGENTS` legacy-compatible list of user-agent substrings marked as suspect; default `bot,crawler,spider,curl,wget,python-requests,python-urllib,go-http-client`
+- `SUSPECT_USER_AGENTS` additional user-agent substrings marked as suspect; default `headless,playwright,puppeteer,selenium,phantomjs`
 
 If your environment uses egress controls, allow HTTPS redirects to:
 
@@ -185,8 +198,7 @@ The mappings are tuned for this collector's analytics event shape: fixed top-lev
 ## Abuse controls
 
 - Requests without an `Origin` header are rejected by default.
-- Requests with obviously automated user agents are rejected by default.
-- Requests with browser-automation style user agents are accepted but marked as suspect.
+- Requests with missing, automated, or browser-automation user agents are accepted but marked as suspect.
 - Requests are rate limited per client IP in-memory with `RATE_LIMIT_PER_MINUTE`.
 - Caddy applies edge rate limiting before the request reaches the collector.
 - `SITE_ORIGIN_MAP` can bind each `site_id` to an explicit set of allowed origins.
